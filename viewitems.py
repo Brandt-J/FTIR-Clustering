@@ -29,13 +29,13 @@ class SpectrumView(QtWidgets.QGraphicsView):
         self.setViewportUpdateMode(QtWidgets.QGraphicsView.BoundingRectViewportUpdate)
         self.setRenderHint(QtGui.QPainter.Antialiasing)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
 
         self.item = QtWidgets.QGraphicsPixmapItem()
         self.item.setPos(0, 0)
 
         self.scene().addItem(self.item)
-        self.item.setScale(0.45)
+        self.item.setScale(0.15)
 
         self.isSelected: bool = True
         self._do_auto_deselection()
@@ -65,7 +65,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
 
     def _spectrum_to_pixmap(self, spectrum: np.array) -> QtGui.QPixmap:
         # sp = SubplotParams(left=0., bottom=0., right=1., top=1.)
-        fig = Figure()
+        fig = Figure(figsize=(8, 4), dpi=300)
         canvas: FigureCanvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
         if spectrum is not None:

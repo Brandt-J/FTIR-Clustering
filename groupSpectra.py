@@ -64,8 +64,8 @@ class MainView(QtWidgets.QWidget):
 
             if has_file(allFiles, 'pkl'):
                 with open(os.path.join(self.dirPath, 'selectedSpectra.pkl'), "rb") as fp:
-                    selectedSpectraHashes: list = pickle.load(fp)
-                self.spectraContainer.update_selected_spectra_from_list(selectedSpectraHashes)
+                    selectedSpectraIndice: list = pickle.load(fp)
+                self.spectraContainer.update_selected_spectra_from_list(selectedSpectraIndice)
 
             self._initialize_child_windows()
 
@@ -82,12 +82,12 @@ class MainView(QtWidgets.QWidget):
         self.showMaximized()
         self.spectraPlots.currentPageIndex = 0
         self.spectraPlots.go_to_page(0)
-        # self.pcaClusteringPlot.update_all()
-        # self.pcaClusteringPlot.show()
+        self.pcaClusteringPlot.update_all()
+        self.pcaClusteringPlot.show()
 
     def closeEvent(self, event) -> None:
         if self.dirPath is not None:
-            self.spectraContainer.save_selected_orig_spectra(self.dirPath)
+            self.spectraContainer.save_selected_spectraIndices(self.dirPath)
         self.pcaClusteringPlot.close()
         event.accept()
 
@@ -142,30 +142,22 @@ class SpectraContainer(QtCore.QObject):
             specObj.update_spectra_options(subtractBaseline, removeCO2)
         self.spectraHaveChanged.emit()
 
-    def update_selected_spectra_from_list(self, selectedSpectraHashes: list) -> None:
-        print(f'loading {len(selectedSpectraHashes)} hashes of selected spectra')
-        print(selectedSpectraHashes)
+    def update_selected_spectra_from_list(self, selectedSpectraIndice: list) -> None:
         for specObj in self.spectraObjects:
-            origSpecHash: int = hash(str(specObj.origSpectrum))
-            if origSpecHash in selectedSpectraHashes:
+            if specObj.specIndex in selectedSpectraIndice:
                 specObj.isSelected = True
-                print('is now selected')
             else:
-                print('nope, hash not found')
                 specObj.isSelected = False
             specObj.update_opacity()
 
-    def save_selected_orig_spectra(self, path: str) -> None:
-        selectedSpectraHashes: list = []
+    def save_selected_spectraIndices(self, path: str) -> None:
+        selectedSpectraIndice: list = []
         for specObj in self.spectraObjects:
             if specObj.isSelected:
-                curHash: int = hash(str(specObj.origSpectrum))
-                selectedSpectraHashes.append(curHash)
+                selectedSpectraIndice.append(specObj.specIndex)
 
         with open(os.path.join(path, 'selectedSpectra.pkl'), "wb") as fp:
-            pickle.dump(selectedSpectraHashes, fp, protocol=-1)
-
-        print(f'saved hashes of {len(selectedSpectraHashes)} selected spectra')
+            pickle.dump(selectedSpectraIndice, fp, protocol=-1)
 
 
 class SpectraPlotViewer(QtWidgets.QGroupBox):
