@@ -30,7 +30,7 @@ class MainView(QtWidgets.QWidget):
         layout.addWidget(self.spectraPlots)
         self.show()
 
-        self.pcaClusteringPlot = PCAClusterView(self.spectraContainer)
+        self.pcaClusteringPlot = PCAClusterView(self)
         self.dirPath = None
         self._establish_connections()
 
