@@ -61,7 +61,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
             noiseLevel: float = fn.get_noise_level(self.spectrum[:, 1])
             if noiseLevel > 3:
                 self.isSelected = False
-        self._update_opacity()
+        self.update_opacity()
 
     def _spectrum_to_pixmap(self, spectrum: np.array) -> QtGui.QPixmap:
         # sp = SubplotParams(left=0., bottom=0., right=1., top=1.)
@@ -78,7 +78,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
         im = QtGui.QImage(canvas.buffer_rgba(), width, height, QtGui.QImage.Format_ARGB32)
         return QtGui.QPixmap(im)
 
-    def _update_opacity(self) -> None:
+    def update_opacity(self) -> None:
         if self.isSelected:
             self.item.setOpacity(1.)
         else:
@@ -90,7 +90,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
 
         elif event.button() == QtCore.Qt.LeftButton:
             self.isSelected = not self.isSelected
-            self._update_opacity()
+            self.update_opacity()
             self.parentContainer.update_spec_selection()
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:

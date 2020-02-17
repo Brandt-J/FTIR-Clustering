@@ -7,6 +7,7 @@ Created on Tue Feb 11 10:37:04 2020
 from PyQt5 import QtWidgets, QtCore
 import os
 import numpy as np
+import pickle
 
 from functions import read_format_and_save_spectra
 from viewitems import SpectrumView, PCAClusterView, ResultSpectra
@@ -30,35 +31,63 @@ class MainView(QtWidgets.QWidget):
         self.show()
 
         self.pcaClusteringPlot = PCAClusterView(self.spectraContainer)
+        self.dirPath = None
+        self._establish_connections()
+
+    def _establish_connections(self):
         self.spectraContainer.spectraHaveChanged.connect(self.pcaClusteringPlot.update_all)
         self.spectraContainer.spectraHaveChanged.connect(self.spectraPlots.update_display)
         self.spectraContainer.spectraSelectionHasChanged.connect(self.pcaClusteringPlot.update_all)
         self.spectraPlots.spectraOptionsChanged.connect(self.spectraContainer.update_spectra_options)
 
     def selectSpectraFolder(self):
-        dirpath = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Spectra Directory', defaultPath)
-        if dirpath:
-            self.spectraContainer.clear_all_spectra()
+        def has_file(files: list, fileextension: str) -> bool:
+            hasFile: bool = False
+            for curFile in files:
+                if curFile.endswith(fileextension):
+                    hasFile = True
+                    break
+            return hasFile
+        
+        self.dirPath = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Spectra Directory', defaultPath)
+        if self.dirPath:
             spectra = None
-            allSpecFiles = os.listdir(dirpath)
-            for file in allSpecFiles:
-                if file.find('.npy') != -1:
-                    spectra = np.load(os.path.join(dirpath, file))
+            allFiles = os.listdir(self.dirPath)
+            for file in allFiles:
+                if file.endswith('.npy'):
+                    spectra = np.load(os.path.join(self.dirPath, file))
                     break
             if spectra is None:
-                spectra = read_format_and_save_spectra(dirpath, allSpecFiles)
+                spectra = read_format_and_save_spectra(self.dirPath, allFiles)
 
-            for index in range(spectra.shape[1]-1):
-                spec: np.array = np.transpose(np.vstack((spectra[:, 0], spectra[:, index+1])))
-                self.spectraContainer.add_spectrum(spec, index)
+            self._reset_specContainer_with_spectra(spectra)
 
-            self.showMaximized()
-            self.spectraPlots.currentPageIndex = 0
-            self.spectraPlots.go_to_page(0)
-            self.pcaClusteringPlot.update_all()
-            self.pcaClusteringPlot.show()
+            if has_file(allFiles, 'pkl'):
+                with open(os.path.join(self.dirPath, 'selectedSpectra.pkl'), "rb") as fp:
+                    selectedSpectraHashes: list = pickle.load(fp)
+                self.spectraContainer.update_selected_spectra_from_list(selectedSpectraHashes)
+
+            self._initialize_child_windows()
+
+        else:
+            self.dirPath = None
+
+    def _reset_specContainer_with_spectra(self, spectra: np.array):            
+        self.spectraContainer.clear_all_spectra()
+        for index in range(spectra.shape[1]-1):
+            spec: np.array = np.transpose(np.vstack((spectra[:, 0], spectra[:, index+1])))
+            self.spectraContainer.add_spectrum(spec, index)
+
+    def _initialize_child_windows(self):
+        self.showMaximized()
+        self.spectraPlots.currentPageIndex = 0
+        self.spectraPlots.go_to_page(0)
+        # self.pcaClusteringPlot.update_all()
+        # self.pcaClusteringPlot.show()
 
     def closeEvent(self, event) -> None:
+        if self.dirPath is not None:
+            self.spectraContainer.save_selected_orig_spectra(self.dirPath)
         self.pcaClusteringPlot.close()
         event.accept()
 
@@ -75,7 +104,8 @@ class SpectraContainer(QtCore.QObject):
         self.spectraObjects = []
 
     def add_spectrum(self, spectrum: np.array, specIndex: int) -> None:
-        self.spectraObjects.append(SpectrumView(self, spectrum, specIndex))
+        newSpecView: SpectrumView = SpectrumView(self, spectrum, specIndex)
+        self.spectraObjects.append(newSpecView)
 
     def get_number_of_spectra(self) -> int:
         return len(self.spectraObjects)
@@ -104,7 +134,6 @@ class SpectraContainer(QtCore.QObject):
         return spectraArray
 
     def update_spec_selection(self):
-        # self.spectraHaveChanged.emit()
         self.spectraSelectionHasChanged.emit()
 
     @QtCore.pyqtSlot(bool, bool)
@@ -112,6 +141,31 @@ class SpectraContainer(QtCore.QObject):
         for specObj in self.spectraObjects:
             specObj.update_spectra_options(subtractBaseline, removeCO2)
         self.spectraHaveChanged.emit()
+
+    def update_selected_spectra_from_list(self, selectedSpectraHashes: list) -> None:
+        print(f'loading {len(selectedSpectraHashes)} hashes of selected spectra')
+        print(selectedSpectraHashes)
+        for specObj in self.spectraObjects:
+            origSpecHash: int = hash(str(specObj.origSpectrum))
+            if origSpecHash in selectedSpectraHashes:
+                specObj.isSelected = True
+                print('is now selected')
+            else:
+                print('nope, hash not found')
+                specObj.isSelected = False
+            specObj.update_opacity()
+
+    def save_selected_orig_spectra(self, path: str) -> None:
+        selectedSpectraHashes: list = []
+        for specObj in self.spectraObjects:
+            if specObj.isSelected:
+                curHash: int = hash(str(specObj.origSpectrum))
+                selectedSpectraHashes.append(curHash)
+
+        with open(os.path.join(path, 'selectedSpectra.pkl'), "wb") as fp:
+            pickle.dump(selectedSpectraHashes, fp, protocol=-1)
+
+        print(f'saved hashes of {len(selectedSpectraHashes)} selected spectra')
 
 
 class SpectraPlotViewer(QtWidgets.QGroupBox):
