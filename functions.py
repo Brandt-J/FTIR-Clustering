@@ -137,3 +137,20 @@ class WhittakerSmoother(object):
         foo = self.upper_bands.copy()
         foo[-1] += w  # last row is the diagonal
         return solveh_banded(foo, w * self.y, overwrite_ab=True, overwrite_b=True)
+
+
+def remove_co2(spectrum: np.array) -> np.array:
+    def findIndexClosestToValue(data: np.array, value: float) -> int:
+        diff: np.array = abs(data - value)
+        minDiff: float = np.min(diff)
+        return int(np.where(diff == minDiff)[0])
+
+    startCO2: int = findIndexClosestToValue(spectrum[:, 0], 2100)
+    endCO2: int = findIndexClosestToValue(spectrum[:, 0], 2400)
+
+    numValuesToOverride: int = int(endCO2 - startCO2)
+    startVal, endVal = spectrum[startCO2, 1], spectrum[endCO2, 1]
+
+    newYData: np.array = np.linspace(startVal, endVal, numValuesToOverride)
+    spectrum[startCO2:endCO2, 1] = newYData
+    return spectrum

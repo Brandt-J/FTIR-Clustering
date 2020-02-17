@@ -45,6 +45,8 @@ class SpectrumView(QtWidgets.QGraphicsView):
             self.spectrum = self.origSpectrum.copy()
             if subtractBaseline:
                 self.spectrum[:, 1] -= fn.get_baseline(self.spectrum[:, 1], smoothness_param=1e6)
+            if removeCO2:
+                self.spectrum = fn.remove_co2(self.spectrum)
         else:
             self.spectrum = None
 
