@@ -10,8 +10,10 @@ class SpectrumView(QtWidgets.QGraphicsView):
     def __init__(self, parentContainer, spectrum: np.array = None, specIndex: int = None):
         super(SpectrumView, self).__init__()
         self.parentContainer = parentContainer
-        self.spectrum = spectrum
-        self.spectrumToPlot = None
+        self.origSpectrum: np.array = spectrum
+        self.spectrum = None
+        if self.origSpectrum is not None:
+            self.spectrum = self.origSpectrum.copy()
         self.specIndex: int = specIndex
 
         self.drag = None
@@ -37,19 +39,17 @@ class SpectrumView(QtWidgets.QGraphicsView):
 
         self.isSelected: bool = True
         self._do_auto_deselection()
-        # self.update_specGraph()
 
     def update_spectra_options(self, subtractBaseline: bool, removeCO2: bool):
-        if self.spectrum is not None:
-            self.spectrumToPlot = self.spectrum.copy()
+        if self.origSpectrum is not None:
+            self.spectrum = self.origSpectrum.copy()
             if subtractBaseline:
-                self.spectrumToPlot[:, 1] -= fn.get_baseline(self.spectrumToPlot[:, 1], smoothness_param=1e6)
+                self.spectrum[:, 1] -= fn.get_baseline(self.spectrum[:, 1], smoothness_param=1e6)
+        else:
+            self.spectrum = None
 
     def update_specGraph(self):
-        if self.spectrumToPlot is None:
-            newPixmap: QtGui.QPixmap = self._spectrum_to_pixmap(self.spectrum)
-        else:
-            newPixmap: QtGui.QPixmap = self._spectrum_to_pixmap(self.spectrumToPlot)
+        newPixmap: QtGui.QPixmap = self._spectrum_to_pixmap(self.spectrum)
         self.item.setPixmap(newPixmap)
 
     def _do_auto_deselection(self) -> None:
@@ -146,6 +146,12 @@ class PCAClusterView(QtWidgets.QWidget):
 
         toolbarLayout.addWidget(QtWidgets.QLabel(' | Num. Clusters in PCA:'))
         toolbarLayout.addWidget(self.numClusterSelector)
+
+        updateSpecsBtn = QtWidgets.QPushButton('Update Spectra View')
+        updateSpecsBtn.released.connect(self.update_result_spectra)
+
+        toolbarLayout.addWidget(QtWidgets.QLabel(' |'))
+        toolbarLayout.addWidget(updateSpecsBtn)
         toolbarLayout.addStretch()
 
         layout.addWidget(toolbar)
@@ -186,9 +192,13 @@ class PCAClusterView(QtWidgets.QWidget):
         self.pc_ax.set_title(f'Centers = {numClusters}; fpc = {fpc:.3f}')
         self.pcaCanvas.draw()
 
-        # sortedSpectra: list = sort_spectra(self.spectraContainer.get_selected_spectra(),
-        # cluster_membership, numClusters)
-        # self.resultSpectraPlot.update_spectra(sortedSpectra)
+        self.sortedSpectra: list = fn.sort_spectra(self.spectraContainer.get_selected_spectra(),
+                                                   cluster_membership, numClusters)
+
+    def update_result_spectra(self):
+        if self.sortedSpectra is not None:
+            self.resultSpectraPlot.update_spectra(self.sortedSpectra)
+            self.resultSpectraPlot.show()
 
     def closeEvent(self, event) -> None:
         self.resultSpectraPlot.close()
@@ -202,16 +212,79 @@ class ResultSpectra(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
 
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self.sortedSpectraCanvas = FigureCanvas(Figure())
-        self.averageSpectraCanvas = FigureCanvas(Figure())
-        splitter.addWidget(self.sortedSpectraCanvas)
+        splitter: QtWidgets.QSplitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        sortedSpectraGroup: QtWidgets.QGroupBox = QtWidgets.QGroupBox('Clustered Spectra')
+        self.sortedSpectraLayout: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
+        sortedSpectraGroup.setLayout(self.sortedSpectraLayout)
+
+        self.sortedSpectraCanvases: list = []
+        self.sortedSpectraAxes: list = []
+        self.averageSpectraCanvas: FigureCanvas = FigureCanvas(Figure())
+        self.averageAx = self.averageSpectraCanvas.figure.add_subplot(111)
+
+        splitter.addWidget(sortedSpectraGroup)
         splitter.addWidget(self.averageSpectraCanvas)
         layout.addWidget(splitter)
 
     def update_spectra(self, spectraList: list) -> None:
         # spectraList is nested list of spectra per cluster...
-        pass
+        numClusters: int = len(spectraList)
+        self._clear_sorted_spectra()
+        self._assert_having_n_canvases(numClusters)
+        self._set_canvas_width(numClusters)
+
+        for index, spectra in enumerate(spectraList):
+            self._plot_sorted_spectra(spectra, index)
+            self._add_canvas_to_layout(index)
+
+        self._plot_averaged_spectra(spectraList)
+
+    def _clear_sorted_spectra(self) -> None:
+        for i in reversed(range(self.sortedSpectraLayout.count())):
+            widget = self.sortedSpectraLayout.itemAt(i).widget()
+            widget.setParent(None)
+            self.sortedSpectraLayout.removeWidget(widget)
+
+    def _assert_having_n_canvases(self, n: int):
+        if n > len(self.sortedSpectraCanvases):
+            for _ in range(n - len(self.sortedSpectraCanvases)):
+                newCanvas: FigureCanvas = FigureCanvas(Figure())
+                self.sortedSpectraCanvases.append(newCanvas)
+                newAx = newCanvas.figure.add_subplot(111)
+                self.sortedSpectraAxes.append(newAx)
+
+    def _set_canvas_width(self, numCanvases: int) -> None:
+        widgetWidthMM: int = self.widthMM()
+        widgetWidthInch: float = widgetWidthMM / 25.4
+        widthPerCanvas: float = widgetWidthInch / numCanvases
+        for canvas in self.sortedSpectraCanvases:
+            fig: Figure = canvas.figure
+            fig.set_figwidth(widthPerCanvas)
+
+    def _plot_sorted_spectra(self, spectra: np.array, index: int):
+        ax = self.sortedSpectraAxes[index]
+        ax.clear()
+        for specInd in range(spectra.shape[1] - 1):
+            ax.plot(spectra[:, 0], spectra[:, specInd + 1])
+        ax.set_title(f'{spectra.shape[1]-1} Spectra of cluster {index + 1}')
+        ax.set_xlabel('Wavenumber (cm-1)')
+        ax.set_ylabel('Abundancy (a.u.)')
+
+    def _add_canvas_to_layout(self, index):
+        canvas: FigureCanvas = self.sortedSpectraCanvases[index]
+        self.sortedSpectraLayout.addWidget(canvas)
+        canvas.draw()
+
+    def _plot_averaged_spectra(self, sortedSpectra: np.array):
+        self.averageAx.clear()
+        for index, spectra in enumerate(sortedSpectra):
+            avgInt: np.array = np.mean(spectra[:, 1:], axis=1)
+            self.averageAx.plot(spectra[:, 0], avgInt, label=f'Average of Cluster {index + 1}')
+        self.averageAx.set_title('Averaged Spectra')
+        self.averageAx.set_xlabel('Wavenumber (cm-1)')
+        self.averageAx.set_ylabel('Abundancy (a.u.)')
+        self.averageAx.legend()
+        self.averageSpectraCanvas.draw()
 
 
 if __name__ == '__main__':

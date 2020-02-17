@@ -31,7 +31,8 @@ class MainView(QtWidgets.QWidget):
 
         self.pcaClusteringPlot = PCAClusterView(self.spectraContainer)
         self.spectraContainer.spectraHaveChanged.connect(self.pcaClusteringPlot.update_all)
-        self.spectraContainer.spectraHaveChanged.connect(self.spectraPlots.update_info_label)
+        self.spectraContainer.spectraHaveChanged.connect(self.spectraPlots.update_display)
+        self.spectraContainer.spectraSelectionHasChanged.connect(self.pcaClusteringPlot.update_all)
         self.spectraPlots.spectraOptionsChanged.connect(self.spectraContainer.update_spectra_options)
 
     def selectSpectraFolder(self):
@@ -64,6 +65,7 @@ class MainView(QtWidgets.QWidget):
 
 class SpectraContainer(QtCore.QObject):
     spectraHaveChanged = QtCore.pyqtSignal()
+    spectraSelectionHasChanged = QtCore.pyqtSignal()
 
     def __init__(self):
         super(SpectraContainer, self).__init__()
@@ -102,13 +104,14 @@ class SpectraContainer(QtCore.QObject):
         return spectraArray
 
     def update_spec_selection(self):
-        self.spectraHaveChanged.emit()
+        # self.spectraHaveChanged.emit()
+        self.spectraSelectionHasChanged.emit()
 
     @QtCore.pyqtSlot(bool, bool)
     def update_spectra_options(self, subtractBaseline: bool, removeCO2: bool):
         for specObj in self.spectraObjects:
             specObj.update_spectra_options(subtractBaseline, removeCO2)
-            self.spectraHaveChanged.emit()
+        self.spectraHaveChanged.emit()
 
 
 class SpectraPlotViewer(QtWidgets.QGroupBox):
@@ -172,7 +175,7 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
 
     def go_to_page(self, pageIndex: int = 0) -> None:
         self._reset_currently_displayed_spectra()
-        self.update_info_label()
+        self.update_display()
         startSpecIndex: int = pageIndex * self.numRows * self.numCols
         specCounter: int = 0
         maxSpecIndex: int = self.spectraContainer.get_number_of_spectra() - 1
@@ -189,11 +192,19 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
                 self.currentlyDisplayedSpectra.append(widget)
                 self.spectraGroupLayout.addWidget(widget, rowInd, colInd)
 
-    def update_info_label(self) -> None:
+    def update_display(self) -> None:
+        self._update_pageLabel()
+        self._update_currently_displayed_spectra()
+
+    def _update_pageLabel(self) -> None:
         numSpectra = self.spectraContainer.get_number_of_spectra()
         numSpectraSelected = self.spectraContainer.get_number_of_selected_spectra()
         self.pageLabel.setText(f'(page {self.currentPageIndex + 1} of {self.numPages};'
                                f' {numSpectraSelected} of {numSpectra} spectra selected)')
+
+    def _update_currently_displayed_spectra(self) -> None:
+        for specObj in self.currentlyDisplayedSpectra:
+            specObj.update_specGraph()
 
     def anounceChangedOptions(self):
         self.spectraOptionsChanged.emit(self.baseLineCheckBox.isChecked(), self.removeCO2CheckBox.isChecked())

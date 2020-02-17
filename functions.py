@@ -50,7 +50,7 @@ def read_format_and_save_spectra(basedir, allSpecFiles):
     return allSpectra
 
 
-def get_pca_of_spectra(spectra: np.array, numComponents: int=2) -> np.array:
+def get_pca_of_spectra(spectra: np.array, numComponents: int = 2) -> np.array:
     intensities = spectra[:, 1:]
     intensitiesStandardized = StandardScaler().fit_transform(intensities)
     pca = PCA(n_components=numComponents)
@@ -65,17 +65,13 @@ def cluster_data(xpts, ypts, numOfClusters):
 
 
 def sort_spectra(spectra, clusterAssignments, numberOfClusters) -> list:
-    sortedSpectraFigure, axes1 = plt.subplots(1, numberOfClusters)
-    averagedSpectraFigure, axes2 = plt.subplots(1, 1)
-    wavenumbers = np.transpose(spectra[:, 0])
-    intensities = spectra[:, 1:]
-
     sortedSpectra = []
     for clusterIndex in range(numberOfClusters):
         specIndices = np.where(clusterAssignments == clusterIndex)[0]
-        specs = intensities[:, specIndices]
-        sortedSpectra.append(np.hstack(wavenumbers, specs))
-
+        # increment by one and insert 0, as we also need to copy the wavenumbers
+        specIndices += 1
+        specIndices = np.insert(specIndices, 0, 0)
+        sortedSpectra.append(spectra[:, specIndices])
     return sortedSpectra
 
 
@@ -86,7 +82,7 @@ def get_noise_level(intensities: np.array, axis=0, ddof=0):
 
 
 def get_baseline(intensities, asymmetry_param=0.05, smoothness_param=1e4,
-                      max_iters=5, conv_thresh=1e-5, verbose=False):
+                 max_iters=5, conv_thresh=1e-5, verbose=False):
     '''Computes the asymmetric least squares baseline.
     * http://www.science.uva.nl/~hboelens/publications/draftpub/Eilers_2005.pdf
     smoothness_param: Relative importance of smoothness of the predicted response.
@@ -109,8 +105,8 @@ def get_baseline(intensities, asymmetry_param=0.05, smoothness_param=1e4,
         if conv < conv_thresh:
             break
         w = new_w
-    else:
-        print('ALS did not converge in %d iterations' % max_iters)
+    # else:
+    #     print('ALS did not converge in %d iterations' % max_iters)
     return baseline
 
 
