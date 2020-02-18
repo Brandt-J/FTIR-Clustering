@@ -4,6 +4,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import numpy as np
 import os
 
+from itertools import combinations
+
 import functions as fn
 
 
@@ -127,11 +129,14 @@ class PCAClusterView(QtWidgets.QWidget):
         toolbar.setLayout(toolbarLayout)
         toolbar.setMaximumHeight(100)
 
+        self.highestComponent: int = 15
+        self.highestNumClusters: int = 5
+
         self.pc1Selector = QtWidgets.QSpinBox()
         self.pc2Selector = QtWidgets.QSpinBox()
         for index, spinbox in enumerate([self.pc1Selector, self.pc2Selector], 1):
             spinbox.setMinimum(1)
-            spinbox.setMaximum(10)
+            spinbox.setMaximum(self.highestComponent)
             spinbox.setValue(index)
             spinbox.setFixedWidth(50)
             spinbox.valueChanged.connect(self._update_pca)
@@ -143,13 +148,17 @@ class PCAClusterView(QtWidgets.QWidget):
         self.numClusterSelector.setFixedWidth(70)
         self.numClusterSelector.valueChanged.connect(self._update_clustering)
 
+        self.optimizeBtn = QtWidgets.QPushButton('Optimize')
+        self.optimizeBtn.released.connect(self._optimize_params)
+
         toolbarLayout.addWidget(QtWidgets.QLabel('Plot PC'))
         toolbarLayout.addWidget(self.pc1Selector)
         toolbarLayout.addWidget(QtWidgets.QLabel(' over'))
         toolbarLayout.addWidget(self.pc2Selector)
-
         toolbarLayout.addWidget(QtWidgets.QLabel(' | Num. Clusters in PCA:'))
         toolbarLayout.addWidget(self.numClusterSelector)
+        toolbarLayout.addWidget(QtWidgets.QLabel('|'))
+        toolbarLayout.addWidget(self.optimizeBtn)
 
         updateSpecsBtn = QtWidgets.QPushButton('Update Spectra View')
         updateSpecsBtn.released.connect(self.update_result_spectra)
@@ -183,7 +192,7 @@ class PCAClusterView(QtWidgets.QWidget):
         spectra: np.array = self.spectraContainer.get_selected_spectra()
         numSpectra: int = spectra.shape[1]-1
         self._check_for_highest_possible_comps(numSpectra)
-        maxComp = min(numSpectra, 15)  # The 15 is an arbitrary, probably senseful number...
+        maxComp = min(numSpectra, self.highestComponent)
         self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComp)
         self._update_clustering()
         self._update_variances()
@@ -199,11 +208,12 @@ class PCAClusterView(QtWidgets.QWidget):
         self.pc_ax.clear()
         comp1Ind = self.pc1Selector.value() - 1
         comp2Ind = self.pc2Selector.value() - 1
-        xpts = self.princComps[:, comp1Ind]
-        ypts = self.princComps[:, comp2Ind]
         numClusters = self.numClusterSelector.value()
 
-        cntr, cluster_membership, fpc = fn.cluster_data(xpts, ypts, numClusters)
+        xpts = self.princComps[:, comp1Ind]
+        ypts = self.princComps[:, comp2Ind]
+
+        cntr, cluster_membership, fpc = self._get_cluster_data(comp1Ind, comp2Ind, numClusters)
         for j in range(numClusters):
             self.pc_ax.plot(xpts[cluster_membership == j], ypts[cluster_membership == j], '.')
 
@@ -221,7 +231,7 @@ class PCAClusterView(QtWidgets.QWidget):
 
     def _update_variances(self):
         self.var_ax.clear()
-        self.var_ax.plot(np.cumsum(self.explVariance))
+        self.var_ax.plot(np.arange(1, len(self.explVariance)+1), np.cumsum(self.explVariance))
         self.var_ax.set_xlabel('Number of Components')
         self.var_ax.set_ylabel('Cumulative Explained Variance (Ratio)')
         self.varCanvas.draw()
@@ -230,6 +240,46 @@ class PCAClusterView(QtWidgets.QWidget):
         if self.sortedSpectra is not None:
             self.resultSpectraPlot.update_spectra(self.sortedSpectra)
             self.resultSpectraPlot.show()
+
+    def _optimize_params(self) -> None:
+        class ClusterCase:
+            comp1: int
+            comp2: int
+            numClusters: int
+            fpc: float
+
+        spectra: np.array = self.spectraContainer.get_selected_spectra()
+        numSpectra: int = spectra.shape[1] - 1
+        maxComponents: int = min(self.highestComponent, numSpectra)
+        self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComponents)
+        minClusters, maxClusters = 2, self.highestNumClusters
+        results: list = []
+        for comp1, comp2 in combinations(range(maxComponents), 2):
+            for numClusters in np.arange(minClusters, maxClusters+1):
+                cntr, cluster_membership, fpc = self._get_cluster_data(comp1, comp2, numClusters)
+                result = ClusterCase()
+                result.comp1 = comp1
+                result.comp2 = comp2
+                result.numClusters = numClusters
+                result.fpc = fpc
+                results.append(result)
+
+        allfpcs: list = [res.fpc for res in results]
+        bestResult: ClusterCase = results[int(np.argmax(allfpcs))]
+        self.pc1Selector.setValue(bestResult.comp1+1)
+        self.pc2Selector.setValue(bestResult.comp2+1)
+        self.numClusterSelector.setValue(bestResult.numClusters)
+        QtWidgets.QMessageBox.about(self, 'Optimization done!',
+                                    f'Best result with PC {bestResult.comp1+1} over PC {bestResult.comp2+1} and '
+                                    f'{bestResult.numClusters} Clusters')
+
+    def _get_cluster_data(self, indexComp1, indexComp2, numClusters) -> tuple:
+        xpts = self.princComps[:, indexComp1]
+        ypts = self.princComps[:, indexComp2]
+
+        cntr, cluster_membership, fpc = fn.cluster_data(xpts, ypts, numClusters)
+
+        return cntr, cluster_membership, fpc
 
     def closeEvent(self, event) -> None:
         self.resultSpectraPlot.close()
