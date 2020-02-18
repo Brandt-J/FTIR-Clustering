@@ -50,11 +50,13 @@ def read_format_and_save_spectra(basedir, allSpecFiles):
     return allSpectra
 
 
-def get_pca_of_spectra(spectra: np.array, numComponents: int = 2) -> np.array:
+def get_pca_of_spectra(spectra: np.array, numComponents: int = 2) -> tuple:
     intensities = spectra[:, 1:]
     intensitiesStandardized = StandardScaler().fit_transform(intensities)
     pca = PCA(n_components=numComponents)
-    return pca.fit_transform(np.transpose(intensitiesStandardized))
+    princComp = pca.fit_transform(np.transpose(intensitiesStandardized))
+    explVar = pca.explained_variance_ratio_
+    return princComp, explVar
 
 
 def cluster_data(xpts, ypts, numOfClusters):

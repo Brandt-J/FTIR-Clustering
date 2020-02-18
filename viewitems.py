@@ -117,7 +117,7 @@ class PCAClusterView(QtWidgets.QWidget):
 
         self.mainWinParent = mainWinParent
         self.spectraContainer = mainWinParent.spectraContainer
-        self.princComps = None
+        self.princComps, self.explVariance = None, None
 
         self.setWindowTitle('PCA Clustering')
         layout = QtWidgets.QVBoxLayout()
@@ -162,20 +162,38 @@ class PCAClusterView(QtWidgets.QWidget):
 
         self.pcaCanvas = FigureCanvas(Figure())
         self.pc_ax = self.pcaCanvas.figure.add_subplot(111)
-        layout.addWidget(self.pcaCanvas)
+
+        self.varCanvas = FigureCanvas(Figure())
+        self.var_ax = self.varCanvas.figure.add_subplot(111)
+
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        splitter.addWidget(self.pcaCanvas)
+        splitter.addWidget(self.varCanvas)
+        layout.addWidget(splitter)
         self.pcaCanvas.draw()
+        self.varCanvas.draw()
 
         self.resultSpectraPlot = ResultSpectra(self.mainWinParent)
 
     def update_all(self) -> None:
         self._update_pca()
-        self._update_clustering()
+        # self._update_clustering()
 
     def _update_pca(self) -> None:
         spectra: np.array = self.spectraContainer.get_selected_spectra()
-        maxComp: int = max([self.pc1Selector.value(), self.pc2Selector.value()])
-        self.princComps = fn.get_pca_of_spectra(spectra, numComponents=maxComp)
+        numSpectra: int = spectra.shape[1]-1
+        self._check_for_highest_possible_comps(numSpectra)
+        maxComp = min(numSpectra, 15)  # The 15 is an arbitrary, probably senseful number...
+        self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComp)
         self._update_clustering()
+        self._update_variances()
+
+    def _check_for_highest_possible_comps(self, numSpectra: int) -> None:
+        for spinbox in [self.pc1Selector, self.pc2Selector]:
+            if spinbox.value() > numSpectra:
+                spinbox.valueChanged.disconnect()
+                spinbox.setValue(numSpectra)
+                spinbox.valueChanged.connect(self._update_pca)
 
     def _update_clustering(self) -> None:
         self.pc_ax.clear()
@@ -194,10 +212,19 @@ class PCAClusterView(QtWidgets.QWidget):
             self.pc_ax.plot(pt[0], pt[1], 'rs')
 
         self.pc_ax.set_title(f'Centers = {numClusters}; fpc = {fpc:.3f}')
+        self.pc_ax.set_xlabel(f'PC {self.pc1Selector.value()} Scores')
+        self.pc_ax.set_ylabel(f'PC {self.pc2Selector.value()} Scores')
         self.pcaCanvas.draw()
 
         self.sortedSpectra: list = fn.sort_spectra(self.spectraContainer.get_selected_spectra(),
                                                    cluster_membership, numClusters)
+
+    def _update_variances(self):
+        self.var_ax.clear()
+        self.var_ax.plot(np.cumsum(self.explVariance))
+        self.var_ax.set_xlabel('Number of Components')
+        self.var_ax.set_ylabel('Cumulative Explained Variance (Ratio)')
+        self.varCanvas.draw()
 
     def update_result_spectra(self):
         if self.sortedSpectra is not None:
