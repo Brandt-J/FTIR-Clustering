@@ -47,9 +47,6 @@ class SpectraCluster(object):
         """
         numSpectra: int = self.spectra.shape[1] - 1
         maxComponents = min(numSpectra, self.highestComponent)
-    #     self._get_pca_of_spectra(numComponents=maxComp)
-    #
-    # def _get_pca_of_spectra(self, numComponents: int = 2) -> None:
         intensities = self.spectra[:, 1:]
         intensitiesStandardized = StandardScaler().fit_transform(intensities)
         pca = PCA(n_components=maxComponents)
