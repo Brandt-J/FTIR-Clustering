@@ -1,15 +1,20 @@
 from PyQt5 import QtWidgets, QtGui, QtCore
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 import numpy as np
 import os
-
 from itertools import combinations
 
+from clustering import SpectraCluster
 import functions as fn
 
 
 class SpectrumView(QtWidgets.QGraphicsView):
+    """
+    A spectrum is rendered as pixmap and can be shown in any QWidget.
+    The original spectrum can be modified with different methods (baseline, co2-removal)
+    """
     def __init__(self, parentContainer, spectrum: np.array = None, specIndex: int = None):
         super(SpectrumView, self).__init__()
         self.parentContainer = parentContainer
@@ -44,6 +49,12 @@ class SpectrumView(QtWidgets.QGraphicsView):
         self._do_auto_deselection()
 
     def update_spectra_options(self, subtractBaseline: bool, removeCO2: bool):
+        """
+        Subtracts baseline and/or removes CO2 region.
+        :param subtractBaseline:
+        :param removeCO2:
+        :return:
+        """
         if self.origSpectrum is not None:
             self.spectrum = self.origSpectrum.copy()
             if subtractBaseline:
@@ -53,11 +64,19 @@ class SpectrumView(QtWidgets.QGraphicsView):
         else:
             self.spectrum = None
 
-    def update_specGraph(self):
+    def update_specGraph(self) -> None:
+        """
+        Updates the pixmap for display.
+        :return:
+        """
         newPixmap: QtGui.QPixmap = self._spectrum_to_pixmap(self.spectrum)
         self.item.setPixmap(newPixmap)
 
     def _do_auto_deselection(self) -> None:
+        """
+        According to a simple noise-level-approximation, poor spectra are automatically deselected.
+        :return:
+        """
         if self.spectrum is None:
             self.isSelected = False
         else:
@@ -67,6 +86,11 @@ class SpectrumView(QtWidgets.QGraphicsView):
         self.update_opacity()
 
     def _spectrum_to_pixmap(self, spectrum: np.array) -> QtGui.QPixmap:
+        """
+        Converts a spectrum into a pixmap.
+        :param spectrum:
+        :return:
+        """
         # sp = SubplotParams(left=0., bottom=0., right=1., top=1.)
         fig = Figure(figsize=(8, 4), dpi=300)
         canvas: FigureCanvas = FigureCanvas(fig)
@@ -81,13 +105,36 @@ class SpectrumView(QtWidgets.QGraphicsView):
         im = QtGui.QImage(canvas.buffer_rgba(), width, height, QtGui.QImage.Format_ARGB32)
         return QtGui.QPixmap(im)
 
+    def set_highlight(self) -> None:
+        """
+        Initiates a highlighting effect to make the specView shine out of a collection of multiple instances.
+        :return:
+        """
+        self.scene().setBackgroundBrush(QtCore.Qt.green)
+
+    def remove_highlight(self) -> None:
+        """
+        Removes the highlighting effect.
+        :return:
+        """
+        self.scene().setBackgroundBrush(QtCore.Qt.darkGray)
+
     def update_opacity(self) -> None:
+        """
+        Updates the pixmap's opacity to indicate selection or deselection, respectively.
+        :return:
+        """
         if self.isSelected:
             self.item.setOpacity(1.)
         else:
             self.item.setOpacity(0.2)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        """
+        Used for handling dragging the graph and/or selecting the spectrum.
+        :param event:
+        :return:
+        """
         if event.button() == QtCore.Qt.MiddleButton:
             self.drag = event.pos()
 
@@ -97,6 +144,11 @@ class SpectrumView(QtWidgets.QGraphicsView):
             self.parentContainer.update_spec_selection()
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
+        """
+        Used for dragging the graphView.
+        :param event:
+        :return:
+        """
         if self.drag is not None:
             p0 = event.pos()
             move = self.drag - p0
@@ -109,17 +161,27 @@ class SpectrumView(QtWidgets.QGraphicsView):
         self.drag = None
 
     def wheelEvent(self, event):
+        """
+        Used for zoom.
+        :param event:
+        :return:
+        """
         factor: float = 1.01 ** (event.angleDelta().y() / 8)
         self.item.setScale(self.item.scale() * factor)
 
 
 class PCAClusterView(QtWidgets.QWidget):
+    """
+    Graphical View of the PCA clustering, containing the clustered PCA data and the explained variance plot.
+    """
+    spectrumIndexSelected = QtCore.pyqtSignal(int)
+
     def __init__(self, mainWinParent):
         super(PCAClusterView, self).__init__()
 
         self.mainWinParent = mainWinParent
         self.spectraContainer = mainWinParent.spectraContainer
-        self.princComps, self.explVariance = None, None
+        self.specClusterer: SpectraCluster = SpectraCluster(self.spectraContainer)
 
         self.setWindowTitle('PCA Clustering')
         layout = QtWidgets.QVBoxLayout()
@@ -129,36 +191,38 @@ class PCAClusterView(QtWidgets.QWidget):
         toolbar.setLayout(toolbarLayout)
         toolbar.setMaximumHeight(100)
 
-        self.highestComponent: int = 15
-        self.highestNumClusters: int = 5
-
         self.pc1Selector = QtWidgets.QSpinBox()
         self.pc2Selector = QtWidgets.QSpinBox()
-        for index, spinbox in enumerate([self.pc1Selector, self.pc2Selector], 1):
+        self.pc3Selector = QtWidgets.QSpinBox()
+        for index, spinbox in enumerate([self.pc1Selector, self.pc2Selector, self.pc3Selector], 1):
             spinbox.setMinimum(1)
-            spinbox.setMaximum(self.highestComponent)
+            spinbox.setMaximum(self.specClusterer.highestComponent)
             spinbox.setValue(index)
             spinbox.setFixedWidth(50)
-            spinbox.valueChanged.connect(self._update_pca)
+            spinbox.valueChanged.connect(self.update_all)
+
+        self.pc3CheckBox = QtWidgets.QCheckBox('Include 3rd dimension with PC Comp')
+        self.pc3CheckBox.stateChanged.connect(self.update_all)
 
         self.numClusterSelector = QtWidgets.QSpinBox()
         self.numClusterSelector.setMaximum(1)
         self.numClusterSelector.setMaximum(7)
-        self.numClusterSelector.setValue(3)
+        self.numClusterSelector.setValue(2)
         self.numClusterSelector.setFixedWidth(70)
-        self.numClusterSelector.valueChanged.connect(self._update_clustering)
+        self.numClusterSelector.valueChanged.connect(self.update_all)
 
-        self.optimizeBtn = QtWidgets.QPushButton('Optimize')
-        self.optimizeBtn.released.connect(self._optimize_params)
+        # self.optimizeBtn = QtWidgets.QPushButton('Optimize')
+        # self.optimizeBtn.released.connect(self._optimize_params)
 
-        toolbarLayout.addWidget(QtWidgets.QLabel('Plot PC'))
+        toolbarLayout.addWidget(QtWidgets.QLabel('PC Components to plot:'))
         toolbarLayout.addWidget(self.pc1Selector)
-        toolbarLayout.addWidget(QtWidgets.QLabel(' over'))
         toolbarLayout.addWidget(self.pc2Selector)
+        toolbarLayout.addWidget(self.pc3CheckBox)
+        toolbarLayout.addWidget(self.pc3Selector)
         toolbarLayout.addWidget(QtWidgets.QLabel(' | Num. Clusters in PCA:'))
         toolbarLayout.addWidget(self.numClusterSelector)
-        toolbarLayout.addWidget(QtWidgets.QLabel('|'))
-        toolbarLayout.addWidget(self.optimizeBtn)
+        # toolbarLayout.addWidget(QtWidgets.QLabel('|'))
+        # toolbarLayout.addWidget(self.optimizeBtn)
 
         updateSpecsBtn = QtWidgets.QPushButton('Update Spectra View')
         updateSpecsBtn.released.connect(self.update_result_spectra)
@@ -169,117 +233,179 @@ class PCAClusterView(QtWidgets.QWidget):
 
         layout.addWidget(toolbar)
 
-        self.pcaCanvas = FigureCanvas(Figure())
-        self.pc_ax = self.pcaCanvas.figure.add_subplot(111)
-
+        self.pcaCanvas3d = FigureCanvas(Figure())
+        self.pcAx3d = self.pcaCanvas3d.figure.add_subplot(111, projection='3d')
+        self.pcaCanvas2d = FigureCanvas(Figure())
+        self.pcAx2d = self.pcaCanvas2d.figure.add_subplot(111)
         self.varCanvas = FigureCanvas(Figure())
         self.var_ax = self.varCanvas.figure.add_subplot(111)
 
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        splitter.addWidget(self.pcaCanvas)
-        splitter.addWidget(self.varCanvas)
-        layout.addWidget(splitter)
-        self.pcaCanvas.draw()
-        self.varCanvas.draw()
+        self.canvasSplitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        layout.addWidget(self.canvasSplitter)
 
         self.resultSpectraPlot = ResultSpectra(self.mainWinParent)
+        self._toggle_3d_clustering()
 
     def update_all(self) -> None:
-        self._update_pca()
-        # self._update_clustering()
-
-    def _update_pca(self) -> None:
+        """
+        Updates the specClusterer and all displays.
+        :return:
+        """
         spectra: np.array = self.spectraContainer.get_selected_spectra()
-        numSpectra: int = spectra.shape[1]-1
+        numSpectra: int = spectra.shape[1] - 1
         self._check_for_highest_possible_comps(numSpectra)
-        maxComp = min(numSpectra, self.highestComponent)
-        self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComp)
-        self._update_clustering()
-        self._update_variances()
+        self.specClusterer.spectra = spectra
+        self._toggle_3d_clustering()
+
+        clusterComponents = None
+        if not self.pc3CheckBox.isChecked():
+            clusterComponents = (self.pc1Selector.value()-1, self.pc2Selector.value()-1, None)
+        else:
+            clusterComponents = (self.pc1Selector.value()-1, self.pc2Selector.value()-1, self.pc3Selector.value()-1)
+
+        self.specClusterer.clusterComponents = clusterComponents
+        self.specClusterer.numDesiredClusters = self.numClusterSelector.value()
+
+        self.specClusterer.update()
+        self._update_cluster_plot()
+        self._update_variance_plot()
+
+    def _toggle_3d_clustering(self) -> None:
+        """
+        According to the selection of the third princ. comp., the canvasses are exchanged
+        and the pc3-spinbox is enabled/disabled.
+        :return:
+        """
+        self.pc3Selector.setEnabled(self.pc3CheckBox.isChecked())
+        self.pcaCanvas2d.setParent(None)
+        self.pcaCanvas3d.setParent(None)
+        self.varCanvas.setParent(None)
+        if self.pc3CheckBox.isChecked():
+            self.canvasSplitter.addWidget(self.pcaCanvas3d)
+            self.pcaCanvas3d.draw()
+        else:
+            self.canvasSplitter.addWidget(self.pcaCanvas2d)
+            self.pcaCanvas2d.draw()
+
+        self.canvasSplitter.addWidget(self.varCanvas)
+        self.canvasSplitter.setSizes([1, 1])
 
     def _check_for_highest_possible_comps(self, numSpectra: int) -> None:
-        for spinbox in [self.pc1Selector, self.pc2Selector]:
+        """
+        It is not possible to solve for more principal components as there are spectra present.
+        This method takes care for it.
+        :param numSpectra:
+        :return:
+        """
+        for spinbox in [self.pc1Selector, self.pc2Selector, self.pc3Selector]:
             if spinbox.value() > numSpectra:
                 spinbox.valueChanged.disconnect()
                 spinbox.setValue(numSpectra)
                 spinbox.valueChanged.connect(self._update_pca)
 
-    def _update_clustering(self) -> None:
-        self.pc_ax.clear()
-        comp1Ind = self.pc1Selector.value() - 1
-        comp2Ind = self.pc2Selector.value() - 1
-        numClusters = self.numClusterSelector.value()
+    def _update_cluster_plot(self) -> None:
+        """
+        Reads out data from specClusterer and refreshes the PCA Cluster Plot
+        :return:
+        """
+        clusterMemberships = self.specClusterer.clusterMemberships
+        numClusters: int = self.specClusterer.numDesiredClusters
+        cntr = self.specClusterer.clusterCenters
+        fpc = self.specClusterer.fpc
 
-        xpts = self.princComps[:, comp1Ind]
-        ypts = self.princComps[:, comp2Ind]
+        if not self.pc3CheckBox.isChecked():
+            self.pcAx2d.clear()
+            xpts, ypts = self.specClusterer.xpts, self.specClusterer.ypts
+            for j in range(numClusters):
+                self.pcAx2d.plot(xpts[clusterMemberships == j], ypts[clusterMemberships == j], '.', picker=5)
 
-        cntr, cluster_membership, fpc = self._get_cluster_data(comp1Ind, comp2Ind, numClusters)
-        for j in range(numClusters):
-            self.pc_ax.plot(xpts[cluster_membership == j], ypts[cluster_membership == j], '.')
+            # mark the center of each cluster
+            for pt in cntr:
+                self.pcAx2d.plot(pt[0], pt[1], 'rs')
+            self.pcAx2d.set_title(f'Centers = {numClusters}; fpc = {fpc:.3f}')
+            self.pcAx2d.set_xlabel(f'PC {self.pc1Selector.value()} Scores')
+            self.pcAx2d.set_ylabel(f'PC {self.pc2Selector.value()} Scores')
+            self.pcaCanvas2d.draw()
 
-        # Mark the center of each cluster
-        for pt in cntr:
-            self.pc_ax.plot(pt[0], pt[1], 'rs')
+            self.pcaCanvas2d.mpl_connect('pick_event', self.onpick)
 
-        self.pc_ax.set_title(f'Centers = {numClusters}; fpc = {fpc:.3f}')
-        self.pc_ax.set_xlabel(f'PC {self.pc1Selector.value()} Scores')
-        self.pc_ax.set_ylabel(f'PC {self.pc2Selector.value()} Scores')
-        self.pcaCanvas.draw()
+        elif self.pc3CheckBox.isChecked():
+            self.pcAx3d.clear()
+            xpts, ypts, zpts = self.specClusterer.xpts, self.specClusterer.ypts, self.specClusterer.zpts
+            for j in range(numClusters):
+                self.pcAx3d.scatter(xpts[clusterMemberships == j], ypts[clusterMemberships == j],
+                                    zpts[clusterMemberships == j], '.')
 
-        self.sortedSpectra: list = fn.sort_spectra(self.spectraContainer.get_selected_spectra(),
-                                                   cluster_membership, numClusters)
+            # mark the center of each cluster
+            for pt in cntr:
+                self.pcAx3d.scatter(pt[0], pt[1], pt[2], 'rs')
+            self.pcAx3d.set_title(f'Centers = {numClusters}; fpc = {fpc:.3f}')
+            self.pcAx3d.set_xlabel(f'PC {self.pc1Selector.value()} Scores')
+            self.pcAx3d.set_ylabel(f'PC {self.pc2Selector.value()} Scores')
+            self.pcAx3d.set_zlabel(f'PC {self.pc3Selector.value()} Scores')
+            self.pcaCanvas3d.draw()
 
-    def _update_variances(self):
+    def _update_variance_plot(self) -> None:
+        """
+        The variance plot is updated with data from the specClusterer
+        :return:
+        """
+        explVariance = self.specClusterer.explVariance
         self.var_ax.clear()
-        self.var_ax.plot(np.arange(1, len(self.explVariance)+1), np.cumsum(self.explVariance))
+        self.var_ax.plot(np.arange(1, len(explVariance)+1), np.cumsum(explVariance))
         self.var_ax.set_xlabel('Number of Components')
         self.var_ax.set_ylabel('Cumulative Explained Variance (Ratio)')
         self.varCanvas.draw()
 
     def update_result_spectra(self):
-        if self.sortedSpectra is not None:
-            self.resultSpectraPlot.update_spectra(self.sortedSpectra)
+        """
+        The sorted spectra are retrieved from the specClusterer and sent to the sortedSpecViewer
+        :return:
+        """
+        if self.specClusterer.sortedSpectra is not None:
+            self.resultSpectraPlot.update_spectra(self.specClusterer.sortedSpectra)
             self.resultSpectraPlot.show()
 
-    def _optimize_params(self) -> None:
-        class ClusterCase:
-            comp1: int
-            comp2: int
-            numClusters: int
-            fpc: float
+    # def _optimize_params(self) -> None:
+    #     class ClusterCase:
+    #         comp1: int
+    #         comp2: int
+    #         numClusters: int
+    #         fpc: float
+    #
+    #     spectra: np.array = self.spectraContainer.get_selected_spectra()
+    #     numSpectra: int = spectra.shape[1] - 1
+    #     maxComponents: int = min(self.highestComponent, numSpectra)
+    #     self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComponents)
+    #     minClusters, maxClusters = 2, self.highestNumClusters
+    #     results: list = []
+    #     for comp1, comp2 in combinations(range(maxComponents), 2):
+    #         for numClusters in np.arange(minClusters, maxClusters+1):
+    #             cntr, cluster_membership, fpc = self._get_cluster_data(numClusters, comp1, comp2)
+    #             result = ClusterCase()
+    #             result.comp1 = comp1
+    #             result.comp2 = comp2
+    #             result.numClusters = numClusters
+    #             result.fpc = fpc
+    #             results.append(result)
+    #
+    #     allfpcs: list = [res.fpc for res in results]
+    #     bestResult: ClusterCase = results[int(np.argmax(allfpcs))]
+    #     self.pc1Selector.setValue(bestResult.comp1+1)
+    #     self.pc2Selector.setValue(bestResult.comp2+1)
+    #     self.numClusterSelector.setValue(bestResult.numClusters)
+    #     QtWidgets.QMessageBox.about(self, 'Optimization done!',
+    #                                 f'Best result with PC {bestResult.comp1+1} over PC {bestResult.comp2+1} and '
+    #                                 f'{bestResult.numClusters} Clusters')
 
-        spectra: np.array = self.spectraContainer.get_selected_spectra()
-        numSpectra: int = spectra.shape[1] - 1
-        maxComponents: int = min(self.highestComponent, numSpectra)
-        self.princComps, self.explVariance = fn.get_pca_of_spectra(spectra, numComponents=maxComponents)
-        minClusters, maxClusters = 2, self.highestNumClusters
-        results: list = []
-        for comp1, comp2 in combinations(range(maxComponents), 2):
-            for numClusters in np.arange(minClusters, maxClusters+1):
-                cntr, cluster_membership, fpc = self._get_cluster_data(comp1, comp2, numClusters)
-                result = ClusterCase()
-                result.comp1 = comp1
-                result.comp2 = comp2
-                result.numClusters = numClusters
-                result.fpc = fpc
-                results.append(result)
-
-        allfpcs: list = [res.fpc for res in results]
-        bestResult: ClusterCase = results[int(np.argmax(allfpcs))]
-        self.pc1Selector.setValue(bestResult.comp1+1)
-        self.pc2Selector.setValue(bestResult.comp2+1)
-        self.numClusterSelector.setValue(bestResult.numClusters)
-        QtWidgets.QMessageBox.about(self, 'Optimization done!',
-                                    f'Best result with PC {bestResult.comp1+1} over PC {bestResult.comp2+1} and '
-                                    f'{bestResult.numClusters} Clusters')
-
-    def _get_cluster_data(self, indexComp1, indexComp2, numClusters) -> tuple:
-        xpts = self.princComps[:, indexComp1]
-        ypts = self.princComps[:, indexComp2]
-
-        cntr, cluster_membership, fpc = fn.cluster_data(xpts, ypts, numClusters)
-
-        return cntr, cluster_membership, fpc
+    def onpick(self, event) -> None:
+        """
+        matplotlib event for catching user inputs in 2d graph
+        :param event:
+        :return:
+        """
+        pointIndices: list = event.ind
+        self.spectrumIndexSelected.emit(pointIndices[0])
 
     def closeEvent(self, event) -> None:
         self.resultSpectraPlot.close()
@@ -287,6 +413,9 @@ class PCAClusterView(QtWidgets.QWidget):
 
 
 class ResultSpectra(QtWidgets.QWidget):
+    """
+    GUI Object for showing the sorted and averaged spectra.
+    """
     def __init__(self, mainWin):
         super(ResultSpectra, self).__init__()
         self.setWindowTitle('Resulting Spectra')
@@ -319,7 +448,11 @@ class ResultSpectra(QtWidgets.QWidget):
         self.averagedSpectra: list = []
 
     def update_spectra(self, spectraList: list) -> None:
-        # spectraList is nested list of spectra per cluster...
+        """
+        Retrieves a nested list of spectra per Cluster and induces plot updates.
+        :param spectraList:
+        :return:
+        """
         numClusters: int = len(spectraList)
         self._clear_sorted_spectra()
         self._assert_having_n_canvases(numClusters)
@@ -333,12 +466,21 @@ class ResultSpectra(QtWidgets.QWidget):
         self._plot_averaged_spectra()
 
     def _clear_sorted_spectra(self) -> None:
+        """
+        The currently displayed plot-Widgetes are removed.
+        :return:
+        """
         for i in reversed(range(self.sortedSpectraLayout.count())):
             widget = self.sortedSpectraLayout.itemAt(i).widget()
             widget.setParent(None)
             self.sortedSpectraLayout.removeWidget(widget)
 
     def _assert_having_n_canvases(self, n: int) -> None:
+        """
+        Checks, if sufficient canvasses are already present and creates more, if needed.
+        :param n:
+        :return:
+        """
         if n > len(self.sortedSpectraCanvases):
             for _ in range(n - len(self.sortedSpectraCanvases)):
                 newCanvas: FigureCanvas = FigureCanvas(Figure())
@@ -347,6 +489,11 @@ class ResultSpectra(QtWidgets.QWidget):
                 self.sortedSpectraAxes.append(newAx)
 
     def _set_canvas_width(self, numCanvases: int) -> None:
+        """
+        Canvas Width is adjusted to retain constant relative dimensions, also when resizing the parent widget
+        :param numCanvases:
+        :return:
+        """
         widgetWidthMM: int = self.widthMM()
         widgetWidthInch: float = widgetWidthMM / 25.4
         widthPerCanvas: float = widgetWidthInch / numCanvases
@@ -354,21 +501,37 @@ class ResultSpectra(QtWidgets.QWidget):
             fig: Figure = canvas.figure
             fig.set_figwidth(widthPerCanvas)
 
-    def _plot_sorted_spectra(self, spectra: np.array, index: int) -> None:
-        ax = self.sortedSpectraAxes[index]
+    def _plot_sorted_spectra(self, spectra: np.array, clusterIndex: int) -> None:
+        """
+        The sorted spectra belonging to the indicated cluster Index are plotted.
+        :param spectra:
+        :param index:
+        :return:
+        """
+        ax = self.sortedSpectraAxes[clusterIndex]
         ax.clear()
         for specInd in range(spectra.shape[1] - 1):
             ax.plot(spectra[:, 0], spectra[:, specInd + 1])
-        ax.set_title(f'{spectra.shape[1]-1} Spectra of cluster {index + 1}')
+        ax.set_title(f'{spectra.shape[1]-1} Spectra of cluster {clusterIndex + 1}')
         ax.set_xlabel('Wavenumber (cm-1)')
         ax.set_ylabel('Abundancy (a.u.)')
 
     def _add_canvas_to_layout(self, index) -> None:
+        """
+        The canvas is added to the widget's layout.
+        :param index:
+        :return:
+        """
         canvas: FigureCanvas = self.sortedSpectraCanvases[index]
         self.sortedSpectraLayout.addWidget(canvas)
         canvas.draw()
 
     def _average_spectra(self, sortedSpectra: np.array) -> None:
+        """
+        Takes an array of sorted spectra and performs averaging.
+        :param sortedSpectra:
+        :return:
+        """
         self.averagedSpectra = []
         for index, spectra in enumerate(sortedSpectra):
             avgInt: np.array = np.mean(spectra[:, 1:], axis=1)
@@ -376,6 +539,10 @@ class ResultSpectra(QtWidgets.QWidget):
             self.averagedSpectra.append(avgSpec)
 
     def _plot_averaged_spectra(self) -> None:
+        """
+        The averaged spectra are plotted.
+        :return:
+        """
         self.averageAx.clear()
         for index, avgSpec in enumerate(self.averagedSpectra):
             self.averageAx.plot(avgSpec[:, 0], avgSpec[:, 1], label=f'Average of Cluster {index + 1}')
@@ -386,14 +553,10 @@ class ResultSpectra(QtWidgets.QWidget):
         self.averageSpectraCanvas.draw()
 
     def _export_spectra(self) -> None:
+        """
+        The averaged spectra are written as csv to the source directory.
+        :return:
+        """
         for index, avgSpec in enumerate(self.averagedSpectra):
             fname: str = os.path.join(self.mainWin.dirPath, f'Average of cluster {index + 1}.csv')
             np.savetxt(fname, avgSpec, delimiter=',')
-
-
-if __name__ == '__main__':
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    win = SpectrumView()
-    win.show()
-    ret = app.exec_()

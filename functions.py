@@ -7,14 +7,18 @@ Created on Tue Feb 11 10:37:04 2020
 import os
 import numpy as np
 import csv
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from scipy.linalg import solveh_banded
-import skfuzzy
 import matplotlib.pyplot as plt
 
 
-def read_format_and_save_spectra(basedir, allSpecFiles):
+def read_format_and_save_spectra(basedir: str, allSpecFiles: list):
+    """
+    Reads each file in list of Files. A numpy binary file is created with all spectra after having read all csv files.
+    This makes later import faster.
+    :param basedir:
+    :param allSpecFiles:
+    :return:
+    """
     wavenumbers = []
     spectra = []
     
@@ -50,34 +54,16 @@ def read_format_and_save_spectra(basedir, allSpecFiles):
     return allSpectra
 
 
-def get_pca_of_spectra(spectra: np.array, numComponents: int = 2) -> tuple:
-    intensities = spectra[:, 1:]
-    intensitiesStandardized = StandardScaler().fit_transform(intensities)
-    pca = PCA(n_components=numComponents)
-    princComp = pca.fit_transform(np.transpose(intensitiesStandardized))
-    explVar = pca.explained_variance_ratio_
-    return princComp, explVar
-
-
-def cluster_data(xpts, ypts, numOfClusters):
-    alldata = np.vstack((xpts, ypts))
-    cntr, u, u0, d, jm, p, fpc = skfuzzy.cluster.cmeans(alldata, numOfClusters, 2, error=0.005, maxiter=1000, init=None)
-    cluster_membership = np.argmax(u, axis=0)
-    return cntr, cluster_membership, fpc
-
-
-def sort_spectra(spectra, clusterAssignments, numberOfClusters) -> list:
-    sortedSpectra = []
-    for clusterIndex in range(numberOfClusters):
-        specIndices = np.where(clusterAssignments == clusterIndex)[0]
-        # increment by one and insert 0, as we also need to copy the wavenumbers
-        specIndices += 1
-        specIndices = np.insert(specIndices, 0, 0)
-        sortedSpectra.append(spectra[:, specIndices])
-    return sortedSpectra
-
-
 def get_noise_level(intensities: np.array, axis=0, ddof=0):
+    """
+    Takes a one-dimensional intensities array and estimates an arbitraty noise level.
+    Larger numbers usually represent more noisy spectra, but this is not always the case.
+    A more sophistcated signal-to-noise-algorithm would be useful here.
+    :param intensities:
+    :param axis:
+    :param ddof:
+    :return:
+    """
     mean = np.mean(intensities)
     stdev = np.std(intensities)
     return mean/stdev
@@ -85,12 +71,12 @@ def get_noise_level(intensities: np.array, axis=0, ddof=0):
 
 def get_baseline(intensities, asymmetry_param=0.05, smoothness_param=1e4,
                  max_iters=5, conv_thresh=1e-5, verbose=False):
-    '''Computes the asymmetric least squares baseline.
+    """Computes the asymmetric least squares baseline.
     * http://www.science.uva.nl/~hboelens/publications/draftpub/Eilers_2005.pdf
     smoothness_param: Relative importance of smoothness of the predicted response.
     asymmetry_param (p): if y > z, w = p, otherwise w = 1-p.
                          Setting p=1 is effectively a hinge loss.
-    '''
+    """
     smoother = WhittakerSmoother(intensities, smoothness_param, deriv_order=2)
     # Rename p for concision.
     p = asymmetry_param
@@ -142,6 +128,11 @@ class WhittakerSmoother(object):
 
 
 def remove_co2(spectrum: np.array) -> np.array:
+    """
+    Removes the CO2 region of a spectrum.
+    :param spectrum:
+    :return:
+    """
     def findIndexClosestToValue(data: np.array, value: float) -> int:
         diff: np.array = abs(data - value)
         minDiff: float = np.min(diff)
