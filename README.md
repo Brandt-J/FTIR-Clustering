@@ -19,5 +19,9 @@ If not, see <https://www.gnu.org/licenses/>.
 
 GUI for loading spectra (csv format) from a directory, reviewing them graphically and clustering them according 
 to their PCA Scores. 
+
+INSTALLATION:
+run "pip install -r requirements.txt" from within this directory to install all necessary packages
+
 Run the groupSpectra.py to start the application.
 

@@ -1,0 +1,6 @@
+scikit-fuzzy
+scikit-learn
+scipy
+numpy
+PyQt5
+matplotlib
