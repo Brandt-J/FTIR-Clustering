@@ -49,6 +49,11 @@ class SpectrumView(QtWidgets.QGraphicsView):
         self.setHorizontalScrollBarPolicy(1)
         self.setVerticalScrollBarPolicy(1)
 
+        self.highlightTimer: QtCore.QTimer = QtCore.QTimer()
+        self.highlightTimer.setSingleShot(True)
+        self.highlightTimer.setInterval(2000)
+        self.highlightTimer.timeout.connect(self.remove_highlight)
+
         scene = QtWidgets.QGraphicsScene(self)
         scene.setItemIndexMethod(QtWidgets.QGraphicsScene.NoIndex)
         scene.setBackgroundBrush(QtCore.Qt.darkGray)
@@ -132,6 +137,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
         :return:
         """
         self.scene().setBackgroundBrush(QtCore.Qt.green)
+        self.highlightTimer.start()
 
     def remove_highlight(self) -> None:
         """
