@@ -226,7 +226,7 @@ class PCAClusterView(QtWidgets.QWidget):
         self.pc3CheckBox.stateChanged.connect(self.update_all)
 
         self.numClusterSelector = QtWidgets.QSpinBox()
-        self.numClusterSelector.setMaximum(1)
+        self.numClusterSelector.setMinimum(1)
         self.numClusterSelector.setMaximum(7)
         self.numClusterSelector.setValue(2)
         self.numClusterSelector.setFixedWidth(70)
@@ -269,7 +269,7 @@ class PCAClusterView(QtWidgets.QWidget):
         self.canvasSplitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         layout.addLayout(self.panelLayout)
 
-        self.resultSpectraPlot = ResultSpectra(self.mainWinParent)
+        self.resultSpectraPlot = ResultSpectra(self.mainWinParent, self.specClusterer)
         self._toggle_3d_clustering()
 
     def reset_for_new_sample(self):
@@ -458,18 +458,39 @@ class ResultSpectra(QtWidgets.QWidget):
     """
     GUI Object for showing the sorted and averaged spectra.
     """
-    def __init__(self, mainWin):
+    def __init__(self, mainWin, specClusterer):
         super(ResultSpectra, self).__init__()
         self.setWindowTitle('Resulting Spectra')
 
         self.mainWin = mainWin
+        self.specClusterer: SpectraCluster = specClusterer
 
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
 
-        exportBtn = QtWidgets.QPushButton('Export Averaged Spectra')
-        exportBtn.setMaximumWidth(150)
-        exportBtn.released.connect(self._export_spectra)
+        toolbar = QtWidgets.QGroupBox()
+        toolarLayout = QtWidgets.QHBoxLayout()
+        toolbar.setLayout(toolarLayout)
+
+        exportAvgBtn = QtWidgets.QPushButton('Export Averaged Spectra')
+        exportAvgBtn.setMaximumWidth(200)
+        exportAvgBtn.released.connect(self._export_average_spectra)
+
+        self.numSpecPerClusterSpinbox = QtWidgets.QSpinBox()
+        self.numSpecPerClusterSpinbox.setFixedWidth(50)
+        self.numSpecPerClusterSpinbox.setMaximum(15)
+        self.numSpecPerClusterSpinbox.setMinimum(1)
+        self.numSpecPerClusterSpinbox.setValue(5)
+
+        exportIndBtn = QtWidgets.QPushButton('Export Individual Spectra')
+        exportIndBtn.setMaximumWidth(150)
+        exportIndBtn.released.connect(self._export_individual_spectra)
+
+        toolarLayout.addWidget(exportAvgBtn)
+        toolarLayout.addWidget(QtWidgets.QLabel('| Number of individual Spectra per Cluster to export:'))
+        toolarLayout.addWidget(self.numSpecPerClusterSpinbox)
+        toolarLayout.addWidget(exportIndBtn)
+        toolarLayout.addStretch()
 
         splitter: QtWidgets.QSplitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         sortedSpectraGroup: QtWidgets.QGroupBox = QtWidgets.QGroupBox('Clustered Spectra')
@@ -486,17 +507,20 @@ class ResultSpectra(QtWidgets.QWidget):
         splitter.addWidget(sortedSpectraGroup)
         splitter.addWidget(self.averageSpectraCanvas)
 
-        layout.addWidget(exportBtn)
+        layout.addWidget(toolbar)
         layout.addWidget(splitter)
 
+        self.sortedSpectraList: list = []
         self.averagedSpectra: list = []
 
     def update_spectra(self, spectraList: list) -> None:
         """
-        Retrieves a nested list of spectra per Cluster and induces plot updates.
+        Retrieves a list of spectra arrays (1st Col: Wavenumbers, 2nd-nth Col, Intensities) per cluster
+        and induces plot updates.
         :param spectraList:
         :return:
         """
+        self.sortedSpectraList = spectraList
         numClusters: int = len(spectraList)
         self._clear_sorted_spectra()
         self._assert_having_n_sortedSpectraPlots(numClusters)
@@ -586,7 +610,6 @@ class ResultSpectra(QtWidgets.QWidget):
         :return:
         """
         canvas: FigureCanvas = self.sortedSpectraCanvases[index]
-        # self.sortedSpectraLayout.addWidget(canvas)
         specPlotGroup: QtWidgets.QGroupBox = self.sortedSpectraPlotGroups[index]
         self.sortedSpectraLayout.addWidget(specPlotGroup)
         canvas.draw()
@@ -617,11 +640,59 @@ class ResultSpectra(QtWidgets.QWidget):
         self.averageAx.legend()
         self.averageSpectraCanvas.draw()
 
-    def _export_spectra(self) -> None:
+    def _export_average_spectra(self) -> None:
         """
         The averaged spectra are written as csv to the source directory.
         :return:
         """
         for index, avgSpec in enumerate(self.averagedSpectra):
-            fname: str = os.path.join(self.mainWin.dirPath, f'Average of cluster {index + 1}.csv')
-            np.savetxt(fname, avgSpec, delimiter=',')
+            self._save_spec_to_disk(avgSpec, f'Average of cluster {index + 1}')
+        QtWidgets.QMessageBox.about(self, 'Export Finished', f'Successfully exported {len(self.averagedSpectra)} '
+                                                             f'averaged spectra.')
+
+    def _export_individual_spectra(self) -> None:
+        """
+        For each cluster, the desired number of individual spectra closest to the cluster centers are exported
+        :return:
+        """
+        desiredSpecsPerCluster: int = self.numSpecPerClusterSpinbox.value()
+        clusterMemberships: np.array = self.specClusterer.clusterMemberships
+        centers: np.array = self.specClusterer.clusterCenters
+        numPrincComps: int = centers.shape[1]
+        pcaPoints: np.array = self.specClusterer.princComps[:, :numPrincComps]
+
+        for clusterIndex, center in enumerate(centers):
+            specIndicesOfCluster: np.array = np.where(clusterMemberships == clusterIndex)[0]
+            pcaPointsOfCluster: np.array = pcaPoints[specIndicesOfCluster]
+            numSpecInCluster: int = len(specIndicesOfCluster)
+            distancesToCenter: np.array = np.linalg.norm(pcaPointsOfCluster - center, axis=1)
+            sortedIndices = np.argsort(distancesToCenter)
+
+            numSpecToExport = min([numSpecInCluster, desiredSpecsPerCluster])
+            specIndicesToExport: list = sortedIndices[:numSpecToExport]
+
+            clusterSpectra = self.sortedSpectraList[clusterIndex]
+
+            for runningIndex, specIndex in enumerate(specIndicesToExport):
+                spec: np.array = clusterSpectra[:, [0, specIndex+1]]
+                specName: str = f'Cluster {clusterIndex+1}, Spectrum {runningIndex+1}'
+                self._save_spec_to_disk(spec, specName)
+
+            if numSpecToExport < desiredSpecsPerCluster:
+                msg = f'Only {numSpecToExport} in cluster {clusterIndex+1}!\n' \
+                      f'All these were export instead of the {desiredSpecsPerCluster} closest spectra per cluster.'
+                QtWidgets.QMessageBox.warning(self, 'Warning', msg)
+
+        QtWidgets.QMessageBox.about(self, 'Export finished',
+                                    'Successfully exported individual spectra for all clusters.')
+
+    def _save_spec_to_disk(self, spec: np.array, specName: str) -> None:
+        """
+        Writes the spectrum with the given Name to disk
+        :param spec:
+        :param specName:
+        :return:
+        """
+        writeName: str = specName + '.csv'
+        fname: str = os.path.join(self.mainWin.dirPath, writeName)
+        np.savetxt(fname, spec, delimiter=',')

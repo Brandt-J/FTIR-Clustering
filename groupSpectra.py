@@ -241,7 +241,7 @@ class SpectraContainer(QtCore.QObject):
 
     def highlight_spectrum_of_index(self, specIndex: int) -> None:
         """
-        The indicated spectrum is highlighted for easier visibility
+        The indicated spectrum is highlighted for easier visibility.
         :param specIndex:
         :return:
         """
@@ -360,9 +360,24 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
     def jump_to_spec_index(self, specIndex: int) -> None:
         """
         Given a spec Index, the corresponding page is displayed and the spectrum is highlighted.
+        Caution, the specIndex given here does not count on unselected spectra. We need to find the actual specIndex
+        first.
         :param specIndex:
         :return:
         """
+        def get_actual_specIndex(index):
+            actualIndex = None
+            selectedIndex = -1
+            for specObj in self.spectraContainer.spectraObjects:
+                if specObj.isSelected:
+                    selectedIndex += 1
+                if selectedIndex == index:
+                    actualIndex = specObj.specIndex
+                    break
+            assert actualIndex is not None
+            return actualIndex
+
+        specIndex = get_actual_specIndex(specIndex)
         numSpecsPerPage: int = self.numCols * self.numRows
         pageIndex: int = specIndex // numSpecsPerPage
         self._go_to_page(pageIndex)

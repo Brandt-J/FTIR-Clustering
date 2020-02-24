@@ -58,7 +58,6 @@ def read_format_and_save_spectra(basedir: str, allSpecFiles: list):
     allSpectra = [wavenumbers[0]]
     for spec in spectra:
         allSpectra.append(spec)
-    print('num of spectra + wavenumbers', len(allSpecFiles))
 
     allSpectra = np.array(allSpectra)
     allSpectra = np.transpose(allSpectra)
