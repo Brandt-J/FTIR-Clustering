@@ -40,8 +40,12 @@ class MainView(QtWidgets.QWidget):
     def _establish_connections(self):
         self.spectraContainer.spectraHaveChanged.connect(self.pcaClusteringPlot.update_all)
         self.spectraContainer.spectraHaveChanged.connect(self.spectraPlots.update_display)
+
         self.spectraContainer.spectraSelectionHasChanged.connect(self.pcaClusteringPlot.update_all)
+        self.spectraContainer.spectraSelectionHasChanged.connect(self.spectraPlots.update_pageLabel)
+
         self.spectraPlots.spectraOptionsChanged.connect(self.spectraContainer.update_spectra_options)
+
         self.pcaClusteringPlot.spectrumIndexSelected.connect(self.spectraPlots.jump_to_spec_index)
 
     def selectSpectraFolder(self) -> None:
@@ -96,10 +100,8 @@ class MainView(QtWidgets.QWidget):
 
     def _initialize_child_windows(self):
         self.showMaximized()
-        self.spectraPlots.currentPageIndex = 0
-        self.spectraPlots.go_to_page(0)
-        self.pcaClusteringPlot.update_all()
-        self.pcaClusteringPlot.show()
+        self.spectraPlots.reset_for_new_sample()
+        self.pcaClusteringPlot.reset_for_new_sample()
 
     def closeEvent(self, event) -> None:
         if self.dirPath is not None:
@@ -299,7 +301,16 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
     def numPages(self) -> int:
         return int(np.ceil(self.spectraContainer.get_number_of_spectra() / (self.numCols * self.numRows)))
 
-    def go_to_page(self, pageIndex: int = 0) -> None:
+    def reset_for_new_sample(self) -> None:
+        """
+        Called when a new sample is loaded.
+        :return:
+        """
+        self.currentPageIndex = 0
+        self._update_buttons()
+        self._go_to_page(0)
+
+    def _go_to_page(self, pageIndex: int = 0) -> None:
         """
         Makes the current display show all spectra belonging to the page with the given index.
         :param pageIndex:
@@ -329,7 +340,7 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         Updates the current display.
         :return:
         """
-        self._update_pageLabel()
+        self.update_pageLabel()
         self._update_currently_displayed_spectra()
 
     @QtCore.pyqtSlot(int)
@@ -341,10 +352,10 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         """
         numSpecsPerPage: int = self.numCols * self.numRows
         pageIndex: int = specIndex // numSpecsPerPage
-        self.go_to_page(pageIndex)
+        self._go_to_page(pageIndex)
         self.spectraContainer.highlight_spectrum_of_index(specIndex)
 
-    def _update_pageLabel(self) -> None:
+    def update_pageLabel(self) -> None:
         """
         A QLabel informs the user on what page he/she currently is. It is updated here.
         :return:
@@ -394,7 +405,7 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         """
         self.currentPageIndex -= 1
         self._update_buttons()
-        self.go_to_page(self.currentPageIndex)
+        self._go_to_page(self.currentPageIndex)
 
     def _to_next_page(self) -> None:
         """
@@ -403,7 +414,7 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         """
         self.currentPageIndex += 1
         self._update_buttons()
-        self.go_to_page(self.currentPageIndex)
+        self._go_to_page(self.currentPageIndex)
 
 
 if __name__ == '__main__':

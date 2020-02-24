@@ -1,6 +1,7 @@
 from PyQt5 import QtWidgets, QtGui, QtCore
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 import numpy as np
 import os
@@ -59,6 +60,7 @@ class SpectrumView(QtWidgets.QGraphicsView):
             self.spectrum = self.origSpectrum.copy()
             if subtractBaseline:
                 self.spectrum[:, 1] -= fn.get_baseline(self.spectrum[:, 1], smoothness_param=1e6)
+
             if removeCO2:
                 self.spectrum = fn.remove_co2(self.spectrum)
         else:
@@ -232,19 +234,34 @@ class PCAClusterView(QtWidgets.QWidget):
         toolbarLayout.addStretch()
 
         layout.addWidget(toolbar)
+        self.panelLayout = QtWidgets.QHBoxLayout()
 
         self.pcaCanvas3d = FigureCanvas(Figure())
         self.pcAx3d = self.pcaCanvas3d.figure.add_subplot(111, projection='3d')
+
         self.pcaCanvas2d = FigureCanvas(Figure())
         self.pcAx2d = self.pcaCanvas2d.figure.add_subplot(111)
         self.varCanvas = FigureCanvas(Figure())
         self.var_ax = self.varCanvas.figure.add_subplot(111)
+        self.pca2DNavigation = NavigationToolbar(self.pcaCanvas2d, self)
+        self.pca2DNavigation.setOrientation(QtCore.Qt.Vertical)
+        self.pca2DNavigation.setFixedWidth(50)
 
         self.canvasSplitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        layout.addWidget(self.canvasSplitter)
+        layout.addLayout(self.panelLayout)
 
         self.resultSpectraPlot = ResultSpectra(self.mainWinParent)
         self._toggle_3d_clustering()
+
+    def reset_for_new_sample(self):
+        """
+        Called when a new sample is loaded.
+        :return:
+        """
+        self.update_all()
+        self.show()
+        self.update_result_spectra()
+
 
     def update_all(self) -> None:
         """
@@ -277,18 +294,22 @@ class PCAClusterView(QtWidgets.QWidget):
         :return:
         """
         self.pc3Selector.setEnabled(self.pc3CheckBox.isChecked())
-        self.pcaCanvas2d.setParent(None)
         self.pcaCanvas3d.setParent(None)
+        self.pcaCanvas2d.setParent(None)
         self.varCanvas.setParent(None)
+        self.pca2DNavigation.setParent(None)
         if self.pc3CheckBox.isChecked():
             self.canvasSplitter.addWidget(self.pcaCanvas3d)
             self.pcaCanvas3d.draw()
         else:
+            self.panelLayout.addWidget(self.pca2DNavigation)
             self.canvasSplitter.addWidget(self.pcaCanvas2d)
             self.pcaCanvas2d.draw()
 
         self.canvasSplitter.addWidget(self.varCanvas)
         self.canvasSplitter.setSizes([1, 1])
+
+        self.panelLayout.addWidget(self.canvasSplitter)
 
     def _check_for_highest_possible_comps(self, numSpectra: int) -> None:
         """
@@ -301,7 +322,7 @@ class PCAClusterView(QtWidgets.QWidget):
             if spinbox.value() > numSpectra:
                 spinbox.valueChanged.disconnect()
                 spinbox.setValue(numSpectra)
-                spinbox.valueChanged.connect(self._update_pca)
+                spinbox.valueChanged.connect(self.update_all)
 
     def _update_cluster_plot(self) -> None:
         """
@@ -365,6 +386,8 @@ class PCAClusterView(QtWidgets.QWidget):
         if self.specClusterer.sortedSpectra is not None:
             self.resultSpectraPlot.update_spectra(self.specClusterer.sortedSpectra)
             self.resultSpectraPlot.show()
+        else:
+            self.resultSpectraPlot.hide()
 
     # def _optimize_params(self) -> None:
     #     class ClusterCase:
@@ -436,6 +459,8 @@ class ResultSpectra(QtWidgets.QWidget):
 
         self.sortedSpectraCanvases: list = []
         self.sortedSpectraAxes: list = []
+        self.sortedSpectraPlotGroups: list = []
+        self.navToolBarWidth: int = 50
         self.averageSpectraCanvas: FigureCanvas = FigureCanvas(Figure())
         self.averageAx = self.averageSpectraCanvas.figure.add_subplot(111)
 
@@ -455,12 +480,12 @@ class ResultSpectra(QtWidgets.QWidget):
         """
         numClusters: int = len(spectraList)
         self._clear_sorted_spectra()
-        self._assert_having_n_canvases(numClusters)
+        self._assert_having_n_sortedSpectraPlots(numClusters)
         self._set_canvas_width(numClusters)
 
         for index, spectra in enumerate(spectraList):
             self._plot_sorted_spectra(spectra, index)
-            self._add_canvas_to_layout(index)
+            self._add_sortedSpecPlot_to_layout(index)
 
         self._average_spectra(spectraList)
         self._plot_averaged_spectra()
@@ -475,18 +500,37 @@ class ResultSpectra(QtWidgets.QWidget):
             widget.setParent(None)
             self.sortedSpectraLayout.removeWidget(widget)
 
-    def _assert_having_n_canvases(self, n: int) -> None:
+    def _assert_having_n_sortedSpectraPlots(self, n: int) -> None:
         """
-        Checks, if sufficient canvasses are already present and creates more, if needed.
+        Checks, if sufficient spectra Plots are already present and creates more, if needed.
         :param n:
         :return:
         """
         if n > len(self.sortedSpectraCanvases):
             for _ in range(n - len(self.sortedSpectraCanvases)):
-                newCanvas: FigureCanvas = FigureCanvas(Figure())
-                self.sortedSpectraCanvases.append(newCanvas)
-                newAx = newCanvas.figure.add_subplot(111)
-                self.sortedSpectraAxes.append(newAx)
+                self._create_new_sortedSpectaPlot()
+
+    def _create_new_sortedSpectaPlot(self):
+        """
+        Creates all objects for a new spectra plot
+        :return:
+        """
+        newCanvas: FigureCanvas = FigureCanvas(Figure())
+        self.sortedSpectraCanvases.append(newCanvas)
+        newAx = newCanvas.figure.add_subplot(111)
+        self.sortedSpectraAxes.append(newAx)
+        newNavToolBar = NavigationToolbar(newCanvas, self)
+        newNavToolBar.setOrientation(QtCore.Qt.Vertical)
+        newNavToolBar.setFixedWidth(self.navToolBarWidth)
+
+        newGroup = QtWidgets.QGroupBox()
+        newLayout = QtWidgets.QHBoxLayout()
+        newGroup.setLayout(newLayout)
+        newGroup.setFlat(True)
+        newLayout.addWidget(newNavToolBar)
+        newLayout.addWidget(newCanvas)
+
+        self.sortedSpectraPlotGroups.append(newGroup)
 
     def _set_canvas_width(self, numCanvases: int) -> None:
         """
@@ -494,12 +538,12 @@ class ResultSpectra(QtWidgets.QWidget):
         :param numCanvases:
         :return:
         """
-        widgetWidthMM: int = self.widthMM()
-        widgetWidthInch: float = widgetWidthMM / 25.4
-        widthPerCanvas: float = widgetWidthInch / numCanvases
+        widgetWidthPx: int = self.width()
+        canvasWidthPx: float = (widgetWidthPx - numCanvases*self.navToolBarWidth) / numCanvases
+        canvasWidthInch: float = canvasWidthPx / self.logicalDpiX()
         for canvas in self.sortedSpectraCanvases:
             fig: Figure = canvas.figure
-            fig.set_figwidth(widthPerCanvas)
+            fig.set_figwidth(canvasWidthInch)
 
     def _plot_sorted_spectra(self, spectra: np.array, clusterIndex: int) -> None:
         """
@@ -516,14 +560,16 @@ class ResultSpectra(QtWidgets.QWidget):
         ax.set_xlabel('Wavenumber (cm-1)')
         ax.set_ylabel('Abundancy (a.u.)')
 
-    def _add_canvas_to_layout(self, index) -> None:
+    def _add_sortedSpecPlot_to_layout(self, index) -> None:
         """
-        The canvas is added to the widget's layout.
+        The groupbox containing navigation toolbar and fig canvas is added to the widget's layout.
         :param index:
         :return:
         """
         canvas: FigureCanvas = self.sortedSpectraCanvases[index]
-        self.sortedSpectraLayout.addWidget(canvas)
+        # self.sortedSpectraLayout.addWidget(canvas)
+        specPlotGroup: QtWidgets.QGroupBox = self.sortedSpectraPlotGroups[index]
+        self.sortedSpectraLayout.addWidget(specPlotGroup)
         canvas.draw()
 
     def _average_spectra(self, sortedSpectra: np.array) -> None:
