@@ -603,9 +603,10 @@ class ResultSpectra(QtWidgets.QWidget):
         """
         ax = self.sortedSpectraAxes[clusterIndex]
         ax.clear()
+
         for specInd in range(spectra.shape[1] - 1):
             ax.plot(spectra[:, 0], spectra[:, specInd + 1])
-        ax.set_title(f'{spectra.shape[1]-1} Spectra of cluster {clusterIndex + 1}')
+        ax.set_title(f'{spectra.shape[1]} Spectra of cluster {clusterIndex + 1}')
         ax.set_xlabel('Wavenumber (cm-1)')
         ax.set_ylabel('Abundancy (a.u.)')
 
@@ -662,21 +663,11 @@ class ResultSpectra(QtWidgets.QWidget):
         :return:
         """
         desiredSpecsPerCluster: int = self.numSpecPerClusterSpinbox.value()
-        clusterMemberships: np.array = self.specClusterer.clusterMemberships
-        centers: np.array = self.specClusterer.clusterCenters
-        numPrincComps: int = centers.shape[1]
-        pcaPoints: np.array = self.specClusterer.princComps[:, :numPrincComps]
+        numClusters: int = len(self.specClusterer.clusterCenters)
 
-        for clusterIndex, center in enumerate(centers):
-            specIndicesOfCluster: np.array = np.where(clusterMemberships == clusterIndex)[0]
-            pcaPointsOfCluster: np.array = pcaPoints[specIndicesOfCluster]
-            numSpecInCluster: int = len(specIndicesOfCluster)
-            distancesToCenter: np.array = np.linalg.norm(pcaPointsOfCluster - center, axis=1)
-            sortedIndices = np.argsort(distancesToCenter)
-
-            numSpecToExport = min([numSpecInCluster, desiredSpecsPerCluster])
-            specIndicesToExport: list = sortedIndices[:numSpecToExport]
-
+        for clusterIndex in range(numClusters):
+            specIndicesToExport: list = self._get_indices_of_spectra_closest_to_clusterIndex(desiredSpecsPerCluster,
+                                                                                             clusterIndex)
             clusterSpectra = self.sortedSpectraList[clusterIndex]
 
             for runningIndex, specIndex in enumerate(specIndicesToExport):
@@ -684,6 +675,7 @@ class ResultSpectra(QtWidgets.QWidget):
                 specName: str = f'Cluster {clusterIndex+1}, Spectrum {runningIndex+1}'
                 self._save_spec_to_disk(spec, specName)
 
+            numSpecToExport = len(specIndicesToExport)
             if numSpecToExport < desiredSpecsPerCluster:
                 msg = f'Only {numSpecToExport} in cluster {clusterIndex+1}!\n' \
                       f'All these were export instead of the {desiredSpecsPerCluster} closest spectra per cluster.'
@@ -691,6 +683,29 @@ class ResultSpectra(QtWidgets.QWidget):
 
         QtWidgets.QMessageBox.about(self, 'Export finished',
                                     'Successfully exported individual spectra for all clusters.')
+
+    def _get_indices_of_spectra_closest_to_clusterIndex(self, numSpectra: int, clusterIndex: int) -> list:
+        """
+        Calculates the indices of the numSpectra closest spectra to cluster of index clusterIndex
+        :param numSpectra:
+        :param clusterIndex:
+        :return:
+        """
+        centers: np.array = self.specClusterer.clusterCenters
+        numPrincComps: int = centers.shape[1]
+        clusterMemberships: np.array = self.specClusterer.clusterMemberships
+        pcaPoints: np.array = self.specClusterer.princComps[:, :numPrincComps]
+
+        center = centers[clusterIndex]
+        specIndicesOfCluster: np.array = np.where(clusterMemberships == clusterIndex)[0]
+        pcaPointsOfCluster: np.array = pcaPoints[specIndicesOfCluster]
+        numSpecInCluster: int = len(specIndicesOfCluster)
+        distancesToCenter: np.array = np.linalg.norm(pcaPointsOfCluster - center, axis=1)
+        sortedIndices = np.argsort(distancesToCenter)
+
+        numSpecToExport = min([numSpecInCluster, numSpectra])
+        specIndicesToExport: list = sortedIndices[:numSpecToExport]
+        return specIndicesToExport
 
     def _save_spec_to_disk(self, spec: np.array, specName: str) -> None:
         """
