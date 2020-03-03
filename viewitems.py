@@ -21,6 +21,7 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backend_bases import PickEvent
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 import numpy as np
 import os
@@ -447,14 +448,18 @@ class PCAClusterView(QtWidgets.QWidget):
     #                                 f'Best result with PC {bestResult.comp1+1} over PC {bestResult.comp2+1} and '
     #                                 f'{bestResult.numClusters} Clusters')
 
-    def onpick(self, event) -> None:
+    def onpick(self, event: PickEvent) -> None:
         """
         matplotlib event for catching user inputs in 2d graph
         :param event:
         :return:
         """
-        pointIndices: list = event.ind
-        self.spectrumIndexSelected.emit(pointIndices[0])
+        points: np.array = np.transpose(np.vstack((self.specClusterer.xpts, self.specClusterer.ypts)))
+        point: np.array = np.transpose(np.array([event.mouseevent.xdata, event.mouseevent.ydata]))
+        distances: np.array = np.linalg.norm(points-point, axis=1)
+        pointIndex = np.argmin(distances)
+        
+        self.spectrumIndexSelected.emit(pointIndex)
 
     def closeEvent(self, event) -> None:
         self.resultSpectraPlot.close()

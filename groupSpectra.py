@@ -74,7 +74,11 @@ class MainView(QtWidgets.QWidget):
                     hasFile = True
                     break
             return hasFile
-        
+
+        if self.dirPath is not None: # i.e., a spectra set was loaded...
+            self.spectraContainer.save_selected_spectraIndices(self.dirPath)
+        self.dirPath = None
+
         self.dirPath = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Spectra Directory', defaultPath)
         if self.dirPath:
             projectName = os.path.basename(self.dirPath)
@@ -319,6 +323,12 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         Called when a new sample is loaded.
         :return:
         """
+        self.baseLineCheckBox.stateChanged.disconnect()
+        self.removeCO2CheckBox.stateChanged.disconnect()
+        self.baseLineCheckBox.setChecked(False)
+        self.removeCO2CheckBox.setChecked(False)
+        self.baseLineCheckBox.stateChanged.connect(self.announce_changed_options)
+        self.removeCO2CheckBox.stateChanged.connect(self.announce_changed_options)
         self.currentPageIndex = 0
         self._update_buttons()
         self._go_to_page(0)
