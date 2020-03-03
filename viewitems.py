@@ -28,6 +28,8 @@ from itertools import combinations
 
 from clustering import SpectraCluster
 import functions as fn
+from spectraPlot import SpectraPlot
+from refDatabase import ReferenceDatabase
 
 
 class SpectrumView(QtWidgets.QGraphicsView):
@@ -275,7 +277,7 @@ class PCAClusterView(QtWidgets.QWidget):
         self.canvasSplitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         layout.addLayout(self.panelLayout)
 
-        self.resultSpectraPlot = ResultSpectra(self.mainWinParent, self.specClusterer)
+        self.resultSpectraPlot = ResultSpectra(self.mainWinParent, self)
         self._toggle_3d_clustering()
 
     def reset_for_new_sample(self):
@@ -286,7 +288,6 @@ class PCAClusterView(QtWidgets.QWidget):
         self.update_all()
         self.show()
         self.update_result_spectra()
-
 
     def update_all(self) -> None:
         """
@@ -464,19 +465,30 @@ class ResultSpectra(QtWidgets.QWidget):
     """
     GUI Object for showing the sorted and averaged spectra.
     """
-    def __init__(self, mainWin, specClusterer):
+    def __init__(self, mainWin, clusterWin):
         super(ResultSpectra, self).__init__()
         self.setWindowTitle('Resulting Spectra')
 
         self.mainWin = mainWin
-        self.specClusterer: SpectraCluster = specClusterer
+        self.pcaClusterWin: PCAClusterView = clusterWin
+        self.specClusterer: SpectraCluster = clusterWin.specClusterer
+        self.refDB: ReferenceDatabase = ReferenceDatabase()
+        self.refSelector: QtWidgets.QComboBox = QtWidgets.QComboBox()
+        self.refSelector.currentIndexChanged.connect(self._update_references_in_plots)
+        self.refSelector.setMinimumWidth(150)
 
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
 
         toolbar = QtWidgets.QGroupBox()
-        toolarLayout = QtWidgets.QHBoxLayout()
-        toolbar.setLayout(toolarLayout)
+        toolbarLayout = QtWidgets.QHBoxLayout()
+        toolbar.setLayout(toolbarLayout)
+
+        updateSpecBtn = QtWidgets.QPushButton('Update Spectra from PCA Clustering')
+        updateSpecBtn.released.connect(self.pcaClusterWin.update_result_spectra)
+
+        setRefBtn = QtWidgets.QPushButton('Set Reference Spectra Directory')
+        setRefBtn.released.connect(self._load_references)
 
         exportAvgBtn = QtWidgets.QPushButton('Export Averaged Spectra')
         exportAvgBtn.setMaximumWidth(200)
@@ -492,32 +504,67 @@ class ResultSpectra(QtWidgets.QWidget):
         exportIndBtn.setMaximumWidth(150)
         exportIndBtn.released.connect(self._export_individual_spectra)
 
-        toolarLayout.addWidget(exportAvgBtn)
-        toolarLayout.addWidget(QtWidgets.QLabel('| Number of individual Spectra per Cluster to export:'))
-        toolarLayout.addWidget(self.numSpecPerClusterSpinbox)
-        toolarLayout.addWidget(exportIndBtn)
-        toolarLayout.addStretch()
+        toolbarLayout.addWidget(updateSpecBtn)
+        toolbarLayout.addWidget(setRefBtn)
+        toolbarLayout.addWidget(self.refSelector)
+        toolbarLayout.addStretch()
+        toolbarLayout.addWidget(QtWidgets.QLabel('|'))
+        toolbarLayout.addWidget(exportAvgBtn)
+        toolbarLayout.addWidget(QtWidgets.QLabel('| Number of individual Spectra per Cluster to export:'))
+        toolbarLayout.addWidget(self.numSpecPerClusterSpinbox)
+        toolbarLayout.addWidget(exportIndBtn)
 
         splitter: QtWidgets.QSplitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         sortedSpectraGroup: QtWidgets.QGroupBox = QtWidgets.QGroupBox('Clustered Spectra')
         self.sortedSpectraLayout: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         sortedSpectraGroup.setLayout(self.sortedSpectraLayout)
 
-        self.sortedSpectraCanvases: list = []
-        self.sortedSpectraAxes: list = []
-        self.sortedSpectraPlotGroups: list = []
-        self.navToolBarWidth: int = 50
-        self.averageSpectraCanvas: FigureCanvas = FigureCanvas(Figure())
-        self.averageAx = self.averageSpectraCanvas.figure.add_subplot(111)
+        self.sortedSpectraPlots: list = []
+        self.averageSpecPlot: SpectraPlot = SpectraPlot(self.refDB)
 
         splitter.addWidget(sortedSpectraGroup)
-        splitter.addWidget(self.averageSpectraCanvas)
+        splitter.addWidget(self.averageSpecPlot)
 
         layout.addWidget(toolbar)
         layout.addWidget(splitter)
 
         self.sortedSpectraList: list = []
         self.averagedSpectra: list = []
+
+    def _load_references(self) -> None:
+        """
+        Loads reference spectra from a user specified directory
+        :return:
+        """
+        dirName = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Reference Spectra Folder', self.mainWin.dirPath)
+        if dirName:
+            self.refDB.load_refs_from_dir(dirName)
+        self._update_reference_selector()
+
+    def _update_reference_selector(self) -> None:
+        """
+        Reads the reference database object and updates the reference selector
+        :return:
+        """
+        for index in range(self.refSelector.count()):
+            self.refSelector.removeItem(index)
+        self.refSelector.addItem('')
+        self.refSelector.addItems(self.refDB.refNames)
+
+    def _update_references_in_plots(self) -> None:
+        """
+        Updates the reference axis in all spectra plots
+        :return:
+        """
+        specName: str = self.refSelector.currentText()
+        spec: np.array = np.array([])
+        if specName != '':
+            index: int = self.refSelector.currentIndex() - 1
+            spec = self.refDB.refSpectra[index]
+
+        self.averageSpecPlot.update_reference_spectrum(specName, spec)
+        for plot in self.sortedSpectraPlots:
+            plot.update_reference_spectrum(specName, spec)
 
     def update_spectra(self, spectraList: list) -> None:
         """
@@ -532,12 +579,15 @@ class ResultSpectra(QtWidgets.QWidget):
         self._assert_having_n_sortedSpectraPlots(numClusters)
         self._set_canvas_width(numClusters)
 
+        avgSpecLabels: list = []
         for index, spectra in enumerate(spectraList):
-            self._plot_sorted_spectra(spectra, index)
-            self._add_sortedSpecPlot_to_layout(index)
+            specPlot: SpectraPlot = self.sortedSpectraPlots[index]
+            specPlot.update_sample_spectra([spectra], f'{spectra.shape[1]} Spectra of cluster {index + 1}')
+            self.sortedSpectraLayout.addWidget(specPlot)
+            avgSpecLabels.append([f'Average of cluster {index+1}'])
 
         self._average_spectra(spectraList)
-        self._plot_averaged_spectra()
+        self.averageSpecPlot.update_sample_spectra(self.averagedSpectra, 'Averaged Spectra', avgSpecLabels)
 
     def _clear_sorted_spectra(self) -> None:
         """
@@ -555,31 +605,10 @@ class ResultSpectra(QtWidgets.QWidget):
         :param n:
         :return:
         """
-        if n > len(self.sortedSpectraCanvases):
-            for _ in range(n - len(self.sortedSpectraCanvases)):
-                self._create_new_sortedSpectaPlot()
-
-    def _create_new_sortedSpectaPlot(self):
-        """
-        Creates all objects for a new spectra plot
-        :return:
-        """
-        newCanvas: FigureCanvas = FigureCanvas(Figure())
-        self.sortedSpectraCanvases.append(newCanvas)
-        newAx = newCanvas.figure.add_subplot(111)
-        self.sortedSpectraAxes.append(newAx)
-        newNavToolBar = NavigationToolbar(newCanvas, self)
-        newNavToolBar.setOrientation(QtCore.Qt.Vertical)
-        newNavToolBar.setFixedWidth(self.navToolBarWidth)
-
-        newGroup = QtWidgets.QGroupBox()
-        newLayout = QtWidgets.QHBoxLayout()
-        newGroup.setLayout(newLayout)
-        newGroup.setFlat(True)
-        newLayout.addWidget(newNavToolBar)
-        newLayout.addWidget(newCanvas)
-
-        self.sortedSpectraPlotGroups.append(newGroup)
+        if n > len(self.sortedSpectraPlots):
+            for _ in range(n - len(self.sortedSpectraPlots)):
+                newSpecPlot: SpectraPlot = SpectraPlot(self.refDB)
+                self.sortedSpectraPlots.append(newSpecPlot)
 
     def _set_canvas_width(self, numCanvases: int) -> None:
         """
@@ -587,39 +616,9 @@ class ResultSpectra(QtWidgets.QWidget):
         :param numCanvases:
         :return:
         """
-        widgetWidthPx: int = self.width()
-        canvasWidthPx: float = (widgetWidthPx - numCanvases*self.navToolBarWidth) / numCanvases
-        canvasWidthInch: float = canvasWidthPx / self.logicalDpiX()
-        for canvas in self.sortedSpectraCanvases:
-            fig: Figure = canvas.figure
-            fig.set_figwidth(canvasWidthInch)
-
-    def _plot_sorted_spectra(self, spectra: np.array, clusterIndex: int) -> None:
-        """
-        The sorted spectra belonging to the indicated cluster Index are plotted.
-        :param spectra:
-        :param index:
-        :return:
-        """
-        ax = self.sortedSpectraAxes[clusterIndex]
-        ax.clear()
-
-        for specInd in range(spectra.shape[1] - 1):
-            ax.plot(spectra[:, 0], spectra[:, specInd + 1])
-        ax.set_title(f'{spectra.shape[1]} Spectra of cluster {clusterIndex + 1}')
-        ax.set_xlabel('Wavenumber (cm-1)')
-        ax.set_ylabel('Abundancy (a.u.)')
-
-    def _add_sortedSpecPlot_to_layout(self, index) -> None:
-        """
-        The groupbox containing navigation toolbar and fig canvas is added to the widget's layout.
-        :param index:
-        :return:
-        """
-        canvas: FigureCanvas = self.sortedSpectraCanvases[index]
-        specPlotGroup: QtWidgets.QGroupBox = self.sortedSpectraPlotGroups[index]
-        self.sortedSpectraLayout.addWidget(specPlotGroup)
-        canvas.draw()
+        widgetWidthPx: int = int(round(self.width() / numCanvases))
+        for specPlot in self.sortedSpectraPlots:
+            specPlot.set_canvas_width(widgetWidthPx)
 
     def _average_spectra(self, sortedSpectra: np.array) -> None:
         """
@@ -632,20 +631,6 @@ class ResultSpectra(QtWidgets.QWidget):
             avgInt: np.array = np.mean(spectra[:, 1:], axis=1)
             avgSpec: np.array = np.transpose(np.vstack((spectra[:, 0], avgInt)))
             self.averagedSpectra.append(avgSpec)
-
-    def _plot_averaged_spectra(self) -> None:
-        """
-        The averaged spectra are plotted.
-        :return:
-        """
-        self.averageAx.clear()
-        for index, avgSpec in enumerate(self.averagedSpectra):
-            self.averageAx.plot(avgSpec[:, 0], avgSpec[:, 1], label=f'Average of Cluster {index + 1}')
-        self.averageAx.set_title('Averaged Spectra')
-        self.averageAx.set_xlabel('Wavenumber (cm-1)')
-        self.averageAx.set_ylabel('Abundancy (a.u.)')
-        self.averageAx.legend()
-        self.averageSpectraCanvas.draw()
 
     def _export_average_spectra(self) -> None:
         """
