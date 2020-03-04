@@ -306,7 +306,7 @@ class SpectraPlotViewer(QtWidgets.QGroupBox):
         controlLayout.addWidget(navigationGroup)
         controlLayout.addWidget(optionsGroup)
 
-        spectraGroup = QtWidgets.QGroupBox('Spectra View')
+        spectraGroup = QtWidgets.QGroupBox('Spectra View, Click on Spectra to select/deselect')
         self.spectraGroupLayout = QtWidgets.QGridLayout()
         spectraGroup.setLayout(self.spectraGroupLayout)
         layout.addWidget(spectraGroup)

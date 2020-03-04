@@ -65,7 +65,8 @@ class SpectraPlot(QtWidgets.QGroupBox):
                 self.specAx.set_title(plotTitle)
                 self.specAx.set_xlabel('Wavenumber (cm-1)')
                 self.specAx.set_ylabel('Abundancy (a.u.)')
-        self.specAx.legend(loc='upper left')
+        if specLabels is not None:
+            self.specAx.legend(loc='upper left')
         self.specCanvas.draw()
 
     def update_reference_spectrum(self, refName: str, refSpec: np.array) -> None:

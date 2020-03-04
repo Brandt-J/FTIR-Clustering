@@ -587,7 +587,7 @@ class ResultSpectra(QtWidgets.QWidget):
         avgSpecLabels: list = []
         for index, spectra in enumerate(spectraList):
             specPlot: SpectraPlot = self.sortedSpectraPlots[index]
-            specPlot.update_sample_spectra([spectra], f'{spectra.shape[1]} Spectra of cluster {index + 1}')
+            specPlot.update_sample_spectra([spectra], f'{spectra.shape[1]-1} Spectra of cluster {index + 1}')
             self.sortedSpectraLayout.addWidget(specPlot)
             avgSpecLabels.append([f'Average of cluster {index+1}'])
 
@@ -667,7 +667,7 @@ class ResultSpectra(QtWidgets.QWidget):
 
             numSpecToExport = len(specIndicesToExport)
             if numSpecToExport < desiredSpecsPerCluster:
-                msg = f'Only {numSpecToExport} in cluster {clusterIndex+1}!\n' \
+                msg = f'Only {numSpecToExport} spectra in cluster {clusterIndex+1}!\n' \
                       f'All these were export instead of the {desiredSpecsPerCluster} closest spectra per cluster.'
                 QtWidgets.QMessageBox.warning(self, 'Warning', msg)
 
