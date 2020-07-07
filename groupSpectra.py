@@ -112,7 +112,7 @@ class MainView(QtWidgets.QWidget):
         """
         self.spectraContainer.clear_all_spectra()
         for index in range(spectra.shape[1]-1):
-            spec: np.array = np.transpose(np.vstack((spectra[:, 0], spectra[:, index+1])))
+            spec: np.ndarray= np.transpose(np.vstack((spectra[:, 0], spectra[:, index+1])))
             self.spectraContainer.add_spectrum(spec, index)
 
     def _initialize_child_windows(self):
@@ -197,7 +197,7 @@ class SpectraContainer(QtCore.QObject):
 
             if specObj.isSelected:
                 selectedSpectra.append(specObj.spectrum[:, 1])
-        spectraArray: np.array = np.transpose(np.array(selectedSpectra))
+        spectraArray: np.ndarray= np.transpose(np.array(selectedSpectra))
         return spectraArray
 
     def update_spec_selection(self):

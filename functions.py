@@ -146,7 +146,7 @@ def remove_co2(spectrum: np.array) -> np.array:
     :return:
     """
     def findIndexClosestToValue(data: np.array, value: float) -> int:
-        diff: np.array = abs(data - value)
+        diff: np.ndarray= abs(data - value)
         minDiff: float = np.min(diff)
         return int(np.where(diff == minDiff)[0])
 
@@ -156,6 +156,6 @@ def remove_co2(spectrum: np.array) -> np.array:
     numValuesToOverride: int = int(endCO2 - startCO2)
     startVal, endVal = spectrum[startCO2, 1], spectrum[endCO2, 1]
 
-    newYData: np.array = np.linspace(startVal, endVal, numValuesToOverride)
+    newYData: np.ndarray= np.linspace(startVal, endVal, numValuesToOverride)
     spectrum[startCO2:endCO2, 1] = newYData
     return spectrum

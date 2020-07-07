@@ -38,10 +38,10 @@ class SpectrumView(QtWidgets.QGraphicsView):
     A spectrum is rendered as pixmap and can be shown in any QWidget.
     The original spectrum can be modified with different methods (baseline, co2-removal)
     """
-    def __init__(self, parentContainer, spectrum: np.array = None, specIndex: int = None):
+    def __init__(self, parentContainer, spectrum: np.ndarray= None, specIndex: int = None):
         super(SpectrumView, self).__init__()
         self.parentContainer = parentContainer
-        self.origSpectrum: np.array = spectrum
+        self.origSpectrum: np.ndarray= spectrum
         self.spectrum = None
         if self.origSpectrum is not None:
             self.spectrum = self.origSpectrum.copy()
@@ -295,7 +295,7 @@ class PCAClusterView(QtWidgets.QWidget):
         Updates the specClusterer and all displays.
         :return:
         """
-        spectra: np.array = self.spectraContainer.get_selected_spectra()
+        spectra: np.ndarray= self.spectraContainer.get_selected_spectra()
         numSpectra: int = spectra.shape[1] - 1
         self._check_for_highest_possible_comps(numSpectra)
         self.specClusterer.spectra = spectra
@@ -454,9 +454,9 @@ class PCAClusterView(QtWidgets.QWidget):
         :param event:
         :return:
         """
-        points: np.array = np.transpose(np.vstack((self.specClusterer.xpts, self.specClusterer.ypts)))
-        point: np.array = np.transpose(np.array([event.mouseevent.xdata, event.mouseevent.ydata]))
-        distances: np.array = np.linalg.norm(points-point, axis=1)
+        points: np.ndarray= np.transpose(np.vstack((self.specClusterer.xpts, self.specClusterer.ypts)))
+        point: np.ndarray= np.transpose(np.array([event.mouseevent.xdata, event.mouseevent.ydata]))
+        distances: np.ndarray= np.linalg.norm(points-point, axis=1)
         pointIndex = np.argmin(distances)
         
         self.spectrumIndexSelected.emit(pointIndex)
@@ -562,7 +562,7 @@ class ResultSpectra(QtWidgets.QWidget):
         :return:
         """
         specName: str = self.refSelector.currentText()
-        spec: np.array = np.array([])
+        spec: np.ndarray= np.array([])
         if specName != '':
             index: int = self.refSelector.currentIndex() - 1
             spec = self.refDB.refSpectra[index]
@@ -633,8 +633,8 @@ class ResultSpectra(QtWidgets.QWidget):
         """
         self.averagedSpectra = []
         for index, spectra in enumerate(sortedSpectra):
-            avgInt: np.array = np.mean(spectra[:, 1:], axis=1)
-            avgSpec: np.array = np.transpose(np.vstack((spectra[:, 0], avgInt)))
+            avgInt: np.ndarray= np.mean(spectra[:, 1:], axis=1)
+            avgSpec: np.ndarray= np.transpose(np.vstack((spectra[:, 0], avgInt)))
             self.averagedSpectra.append(avgSpec)
 
     def _export_average_spectra(self) -> None:
@@ -661,7 +661,7 @@ class ResultSpectra(QtWidgets.QWidget):
             clusterSpectra = self.sortedSpectraList[clusterIndex]
 
             for runningIndex, specIndex in enumerate(specIndicesToExport):
-                spec: np.array = clusterSpectra[:, [0, specIndex+1]]
+                spec: np.ndarray= clusterSpectra[:, [0, specIndex+1]]
                 specName: str = f'Cluster {clusterIndex+1}, Spectrum {runningIndex+1}'
                 self._save_spec_to_disk(spec, specName)
 
@@ -681,16 +681,16 @@ class ResultSpectra(QtWidgets.QWidget):
         :param clusterIndex:
         :return:
         """
-        centers: np.array = self.specClusterer.clusterCenters
+        centers: np.ndarray= self.specClusterer.clusterCenters
         numPrincComps: int = centers.shape[1]
-        clusterMemberships: np.array = self.specClusterer.clusterMemberships
-        pcaPoints: np.array = self.specClusterer.princComps[:, :numPrincComps]
+        clusterMemberships: np.ndarray= self.specClusterer.clusterMemberships
+        pcaPoints: np.ndarray= self.specClusterer.princComps[:, :numPrincComps]
 
         center = centers[clusterIndex]
-        specIndicesOfCluster: np.array = np.where(clusterMemberships == clusterIndex)[0]
-        pcaPointsOfCluster: np.array = pcaPoints[specIndicesOfCluster]
+        specIndicesOfCluster: np.ndarray= np.where(clusterMemberships == clusterIndex)[0]
+        pcaPointsOfCluster: np.ndarray= pcaPoints[specIndicesOfCluster]
         numSpecInCluster: int = len(specIndicesOfCluster)
-        distancesToCenter: np.array = np.linalg.norm(pcaPointsOfCluster - center, axis=1)
+        distancesToCenter: np.ndarray= np.linalg.norm(pcaPointsOfCluster - center, axis=1)
         sortedIndices = np.argsort(distancesToCenter)
 
         numSpecToExport = min([numSpecInCluster, numSpectra])

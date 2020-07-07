@@ -30,7 +30,7 @@ class SpectraCluster(object):
     """
     def __init__(self, spectraContainer):
         self.spectraContainer = spectraContainer
-        self.spectra: np.array = None
+        self.spectra: np.ndarray= None
         self.numComponents = None
         self.princComps, self.explVariance = None, None
 

@@ -50,5 +50,5 @@ class ReferenceDatabase(object):
                     intensities.append(intensity)
             
             self.refNames.append(fname.split('.')[0])
-            spec: np.array = np.transpose(np.vstack((wavenumbers, intensities)))
+            spec: np.ndarray= np.transpose(np.vstack((wavenumbers, intensities)))
             self.refSpectra.append(spec)
